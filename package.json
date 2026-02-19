@@ -14,10 +14,62 @@
   "contributes": {
     "commands": [
       {
-        "command": "design-addin.helloWorld",
-        "title": "Hello World"
+        "command": "designAddin.openStudio",
+        "title": "Design Addin: Open Studio"
+      },
+      {
+        "command": "designAddin.newIdea",
+        "title": "Design Addin: New Idea"
+      },
+      {
+        "command": "designAddin.generateBrief",
+        "title": "Design Addin: Generate Brief"
+      },
+      {
+        "command": "designAddin.generateArchitecture",
+        "title": "Design Addin: Generate Architecture"
+      },
+      {
+        "command": "designAddin.generateBacklog",
+        "title": "Design Addin: Generate Backlog"
+      },
+      {
+        "command": "designAddin.generatePromptForTask",
+        "title": "Design Addin: Generate Prompt for Task"
+      },
+      {
+        "command": "designAddin.runTaskWithCodex",
+        "title": "Design Addin: Run Task with Codex"
+      },
+      {
+        "command": "designAddin.rescanWorkspaceContext",
+        "title": "Design Addin: Rescan Workspace Context"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Design Addin",
+      "properties": {
+        "designAddin.llm.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable LLM-backed artifact generation. Disabled keeps deterministic offline generation."
+        },
+        "designAddin.llm.provider": {
+          "type": "string",
+          "enum": [
+            "openai",
+            "stub"
+          ],
+          "default": "stub",
+          "description": "LLM provider selection. OpenAI is reserved for future integration; stub is deterministic/offline."
+        },
+        "designAddin.llm.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "API key placeholder for future LLM provider integration. Prefer secret storage when implemented."
+        }
+      }
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

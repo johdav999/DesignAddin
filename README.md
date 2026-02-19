@@ -1,71 +1,55 @@
-# design-addin README
+# Design Addin
 
-This is the README for your extension "design-addin". After writing up a brief description, we recommend including the following sections.
+MVP VS Code extension scaffold for design-to-execution artifacts stored in `.ai-design/`.
 
-## Features
+## Commands
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- `Design Addin: Open Studio` (`designAddin.openStudio`) opens the **Design Studio** webview panel
+- `Design Addin: New Idea` (`designAddin.newIdea`)
+- `Design Addin: Generate Brief` (`designAddin.generateBrief`)
+- `Design Addin: Generate Architecture` (`designAddin.generateArchitecture`)
+- `Design Addin: Generate Backlog` (`designAddin.generateBacklog`)
+- `Design Addin: Generate Prompt for Task` (`designAddin.generatePromptForTask`)
+- `Design Addin: Run Task with Codex` (`designAddin.runTaskWithCodex`)
+- `Design Addin: Rescan Workspace Context` (`designAddin.rescanWorkspaceContext`)
 
-For example if there is an image subfolder under your extension project workspace:
+## Artifact Storage
 
-\!\[feature X\]\(images/feature-x.png\)
+All generated files are stored in `.ai-design/` in the workspace root.
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+Expected artifacts:
+- `.ai-design/contextBundle.json`
+- `.ai-design/idea.json`
+- `.ai-design/brief.v1.md`
+- `.ai-design/architecture.v1.md`
+- `.ai-design/backlog.v1.json`
+- `.ai-design/backlog.v1.md`
+- `.ai-design/prompts/<TASK-ID>.prompt.md`
+- `.ai-design/runs/<timestamp>_<TASK-ID>.json`
+- `.ai-design/runs/last.json`
 
-## Requirements
+## LLM Settings (Stub For Now)
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+- `designAddin.llm.enabled` (default `false`)
+- `designAddin.llm.provider` (`openai` or `stub`, default `stub`)
+- `designAddin.llm.apiKey` (placeholder for future provider integration)
 
-## Extension Settings
+Note: real provider calls are not implemented yet. For future implementation, store API keys in VS Code Secret Storage instead of plain settings.
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+## Run And Test In Extension Development Host
 
-For example:
+1. Run `npm run compile`.
+2. Press `F5` in VS Code to launch Extension Development Host.
+3. In the new window, run `Design Addin: Open Studio`.
+4. In the sidebar buttons, run `New Idea`, `Generate Brief`, `Generate Architecture`, and `Generate Backlog`.
+5. Verify files are created/updated under `.ai-design/` and the panel refreshes artifacts/backlog.
+6. In `Backlog` tab, click a task. Then use `Prompts` button to generate/refresh prompt files and verify `.ai-design/prompts/<TASK-ID>.prompt.md`.
+7. In `Backlog` tab, select a task and click `Run with Codex` (or use `Design Addin: Run Task with Codex` from Command Palette).
+8. Verify `.ai-design/runs/last.json` and a timestamped run log file are created.
+9. In `Run Logs` tab, verify last run metadata is shown and `Open Run Log` opens the file.
 
-This extension contributes the following settings:
+### Simulate without Codex CLI installed
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+1. Run `Run with Codex` anyway.
+2. Confirm run metadata files are still written under `.ai-design/runs/`.
+3. Check the `Codex` terminal to see the shell error (`codex` command not found), which is expected for this simulation.

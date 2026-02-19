@@ -38,7 +38,7 @@
       "dependsOn": ["npm: watch", "npm: watch-tests"],
       "problemMatcher": []
     }
-  ],
+  ],5
   "problemMatchers": [
     {
       "name": "esbuild-watch",
