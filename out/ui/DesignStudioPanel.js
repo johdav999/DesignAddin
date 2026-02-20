@@ -1,413 +1,388 @@
-import * as vscode from 'vscode';
-import { ArtifactStore } from '../core/ArtifactStore';
-import { CodexRunner, RunLog } from '../core/CodexRunner';
-import { Backlog, Pipeline } from '../core/Pipeline';
-import { WorkspaceScanner } from '../core/WorkspaceScanner';
-import { createLlmProvider } from '../llm/LlmProviderFactory';
-
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.DesignStudioPanel = void 0;
+const vscode = __importStar(require("vscode"));
+const ArtifactStore_1 = require("../core/ArtifactStore");
+const CodexRunner_1 = require("../core/CodexRunner");
+const Pipeline_1 = require("../core/Pipeline");
+const WorkspaceScanner_1 = require("../core/WorkspaceScanner");
+const LlmProviderFactory_1 = require("../llm/LlmProviderFactory");
 const DEFAULT_WORKSPACE_PATH = 'C:\\Users\\Johan\\source\\repos\\TextAdven';
-
-type StudioMessage =
-	| { type: 'newIdea' }
-	| { type: 'saveIdea'; businessIdea: string }
-	| { type: 'generateBrief' }
-	| { type: 'generateArchitecture' }
-	| { type: 'generateBacklog' }
-	| { type: 'prompts'; taskId?: string }
-	| { type: 'generatePromptForTask'; taskId: string }
-	| { type: 'runCodex'; taskId?: string }
-	| { type: 'selectTask'; taskId: string };
-type StudioFileActionMessage = { type: 'openPromptFile'; taskId: string } | { type: 'openRunLog' };
-type StudioInboundMessage = StudioMessage | StudioFileActionMessage;
-
-export class DesignStudioPanel {
-	public static readonly viewType = 'designAddin.studio';
-	private static currentPanel: DesignStudioPanel | undefined;
-	private readonly outputChannel: vscode.OutputChannel;
-
-	public static async createOrShow(
-		context: vscode.ExtensionContext,
-		extensionUri: vscode.Uri,
-		outputChannel: vscode.OutputChannel
-	): Promise<void> {
-		const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
-		if (DesignStudioPanel.currentPanel) {
-			DesignStudioPanel.currentPanel.panel.reveal(column);
-			await DesignStudioPanel.currentPanel.refreshAll();
-			return;
-		}
-
-		const panel = vscode.window.createWebviewPanel(DesignStudioPanel.viewType, 'Design Studio', column, {
-			enableScripts: true,
-			retainContextWhenHidden: true,
-		});
-
-		DesignStudioPanel.currentPanel = new DesignStudioPanel(panel, context, extensionUri, outputChannel);
-		await DesignStudioPanel.currentPanel.initialize();
-	}
-
-	private constructor(
-		private readonly panel: vscode.WebviewPanel,
-		private readonly context: vscode.ExtensionContext,
-		private readonly extensionUri: vscode.Uri,
-		outputChannel: vscode.OutputChannel
-	) {
-		this.outputChannel = outputChannel;
-		this.panel.onDidDispose(() => this.dispose(), null, this.context.subscriptions);
-		this.panel.webview.onDidReceiveMessage(
-			(message: StudioInboundMessage) => {
-				void this.handleMessage(message);
-			},
-			null,
-			this.context.subscriptions
-		);
-	}
-
-	private async initialize(): Promise<void> {
-		this.panel.webview.html = this.getHtml(this.panel.webview, this.extensionUri);
-		await this.refreshAll();
-	}
-
-	private dispose(): void {
-		DesignStudioPanel.currentPanel = undefined;
-	}
-
-	private async handleMessage(message: StudioInboundMessage): Promise<void> {
-		try {
-			const services = await this.getServices();
-			if (!services) {
-				return;
-			}
-			await services.store.ensureDesignFolder();
-
-			switch (message.type) {
-				case 'newIdea':
-					await services.pipeline.newIdea();
-					this.postToast('info', 'Created .ai-design/idea.json');
-					await this.refreshAll(services);
-					return;
-				case 'saveIdea':
-					await this.saveIdea(services.store, message.businessIdea);
-					return;
-				case 'generateBrief':
-					await services.pipeline.generateBrief();
-					this.postToast('info', 'Created .ai-design/brief.v1.md');
-					await this.refreshAll(services);
-					return;
-				case 'generateArchitecture':
-					await services.pipeline.generateArchitecture();
-					this.postToast('info', 'Created .ai-design/architecture.v1.md');
-					await this.refreshAll(services);
-					return;
-				case 'generateBacklog':
-					await services.pipeline.generateBacklog();
-					this.postToast('info', 'Created backlog artifacts');
-					await this.refreshAll(services);
-					return;
-				case 'prompts':
-					await this.handlePromptsAction(services, message.taskId);
-					await this.refreshAll(services);
-					return;
-				case 'generatePromptForTask':
-					await this.handlePromptsAction(services, message.taskId);
-					await this.refreshAll(services);
-					return;
-				case 'runCodex':
-					await this.runTaskWithCodex(services, message.taskId);
-					await this.refreshAll(services);
-					return;
-				case 'selectTask':
-					await this.sendPromptForTask(message.taskId, services.store);
-					return;
-				case 'openPromptFile':
-					await this.openPromptFile(message.taskId, services.store);
-					return;
-				case 'openRunLog':
-					await this.openLastRunLog(services.store);
-					return;
-			}
-		} catch (error) {
-			const messageText = error instanceof Error ? error.message : String(error);
-			this.postToast('error', messageText);
-		}
-	}
-
-	private async runTaskWithCodex(services: StudioServices, requestedTaskId?: string): Promise<void> {
-		if (!(await services.store.fileExists('backlog.v1.json'))) {
-			this.postToast('error', 'Backlog not found. Generate backlog first.');
-			return;
-		}
-
-		const backlog = await services.store.readJson<Backlog>('backlog.v1.json');
-		const taskId = requestedTaskId ?? this.findFirstTaskId(backlog);
-		if (!taskId) {
-			this.postToast('error', 'No tasks found in backlog.');
-			return;
-		}
-
-		if (!this.findStoryForTask(backlog, taskId)) {
-			this.postToast('error', `Task ${taskId} not found in backlog.`);
-			return;
-		}
-
-		const promptUri = await this.ensurePromptForTask(taskId, backlog, services);
-		const runner = new CodexRunner(services.store);
-		const runLog = await runner.runPrompt(promptUri, services.workspaceRoot, taskId);
-
-		this.panel.webview.postMessage({
-			type: 'runLog',
-			content: `${runLog.startedAt} started ${runLog.taskId} using terminal "${runLog.terminalName}"`,
-		});
-		this.panel.webview.postMessage({
-			type: 'lastRun',
-			json: runLog,
-		});
-		this.postToast('info', `Started Codex for ${taskId}. Run log: ${runLog.runLogPath}`);
-	}
-
-	private async handlePromptsAction(services: StudioServices, requestedTaskId?: string): Promise<void> {
-		if (!(await services.store.fileExists('backlog.v1.json'))) {
-			this.postToast('error', 'Backlog not found. Generate backlog first.');
-			return;
-		}
-
-		const backlog = await services.store.readJson<Backlog>('backlog.v1.json');
-		const taskId = requestedTaskId ?? this.findFirstTaskId(backlog);
-		if (!taskId) {
-			this.postToast('error', 'No tasks found in backlog.');
-			return;
-		}
-
-		if (!this.findStoryForTask(backlog, taskId)) {
-			this.postToast('error', `Task ${taskId} not found in backlog.`);
-			return;
-		}
-
-		await this.ensurePromptForTask(taskId, backlog, services);
-		this.postToast('info', `Created prompt for ${taskId}`);
-		await this.sendPromptForTask(taskId, services.store);
-	}
-
-	private async ensurePromptForTask(taskId: string, backlog: Backlog, services: StudioServices): Promise<vscode.Uri> {
-		const promptRelativePath = `prompts/${taskId}.prompt.md`;
-		if (!(await services.store.fileExists(promptRelativePath))) {
-			await services.scanner.scanAndStoreContextBundle();
-			await services.pipeline.generatePromptForTask(taskId, backlog);
-		}
-		return services.store.resolveDesignPath(promptRelativePath);
-	}
-
-	private async refreshAll(existingServices?: StudioServices): Promise<void> {
-		const services = existingServices ?? (await this.getServices());
-		if (!services) {
-			return;
-		}
-		await services.store.ensureDesignFolder();
-		await services.scanner.scanAndStoreContextBundle();
-		await this.sendIdea(services.store);
-
-		await this.sendArtifact('brief', 'brief.v1.md', services.store);
-		await this.sendArtifact('architecture', 'architecture.v1.md', services.store);
-
-		if (await services.store.fileExists('backlog.v1.json')) {
-			const backlogJson = await services.store.readJson<Backlog>('backlog.v1.json');
-			const backlogMarkdown = await services.store.readText('backlog.v1.md').catch(() => '');
-			this.panel.webview.postMessage({
-				type: 'backlog',
-				json: backlogJson,
-				markdown: backlogMarkdown,
-			});
-		} else {
-			this.panel.webview.postMessage({
-				type: 'backlog',
-				json: null,
-				markdown: '',
-			});
-		}
-
-		await this.sendPromptsList(services.store);
-		await this.sendLastRun(services.store);
-	}
-
-	private async sendIdea(store: ArtifactStore): Promise<void> {
-		let idea: { businessIdea?: string } | null = null;
-		if (await store.fileExists('idea.json')) {
-			try {
-				idea = await store.readJson<{ businessIdea?: string }>('idea.json');
-			} catch {
-				idea = null;
-			}
-		}
-
-		this.panel.webview.postMessage({
-			type: 'idea',
-			businessIdea: idea?.businessIdea ?? '',
-		});
-	}
-
-	private async saveIdea(store: ArtifactStore, businessIdea: string): Promise<void> {
-		let existingIdea: Record<string, unknown> = {};
-		if (await store.fileExists('idea.json')) {
-			try {
-				existingIdea = await store.readJson<Record<string, unknown>>('idea.json');
-			} catch {
-				existingIdea = {};
-			}
-		}
-
-		const merged = {
-			version: (existingIdea.version as number) ?? 1,
-			createdAt: (existingIdea.createdAt as string) ?? new Date().toISOString(),
-			title: (existingIdea.title as string) ?? 'Business Idea',
-			problem:
-				(existingIdea.problem as string) ??
-				'Describe the core workflow or pain point this product should solve.',
-			outcome:
-				(existingIdea.outcome as string) ??
-				'Describe the expected measurable outcome if this succeeds.',
-			businessIdea,
-		};
-
-		await store.writeJson('idea.json', merged);
-		this.panel.webview.postMessage({
-			type: 'ideaSaved',
-			at: new Date().toISOString(),
-		});
-	}
-
-	private async sendArtifact(name: string, relativePath: string, store: ArtifactStore): Promise<void> {
-		let content = '';
-		if (await store.fileExists(relativePath)) {
-			content = await store.readText(relativePath);
-		}
-		this.panel.webview.postMessage({
-			type: 'artifact',
-			name,
-			content,
-		});
-	}
-
-	private async sendPromptsList(store: ArtifactStore): Promise<void> {
-		const promptsRoot = store.resolveDesignPath('prompts');
-		const items: Array<{ taskId: string; promptPath: string }> = [];
-
-		try {
-			const entries = await vscode.workspace.fs.readDirectory(promptsRoot);
-			for (const [name, fileType] of entries) {
-				if (fileType !== vscode.FileType.File || !name.endsWith('.prompt.md')) {
-					continue;
-				}
-				const taskId = name.replace('.prompt.md', '');
-				items.push({
-					taskId,
-					promptPath: `.ai-design/prompts/${name}`,
-				});
-			}
-		} catch {
-			// Prompts directory may not exist yet.
-		}
-
-		this.panel.webview.postMessage({
-			type: 'promptsList',
-			items,
-		});
-	}
-
-	private async sendPromptForTask(taskId: string, store: ArtifactStore): Promise<void> {
-		const promptPath = `prompts/${taskId}.prompt.md`;
-		let content = '';
-		if (await store.fileExists(promptPath)) {
-			content = await store.readText(promptPath);
-		}
-		this.panel.webview.postMessage({
-			type: 'promptPreview',
-			taskId,
-			content,
-		});
-		if (!content) {
-			this.postToast('info', `No prompt exists for ${taskId} yet.`);
-		}
-	}
-
-	private async sendLastRun(store: ArtifactStore): Promise<void> {
-		let lastRun: RunLog | null = null;
-		if (await store.fileExists('runs/last.json')) {
-			lastRun = await store.readJson<RunLog>('runs/last.json');
-		}
-		this.panel.webview.postMessage({
-			type: 'lastRun',
-			json: lastRun,
-		});
-	}
-
-	private async openPromptFile(taskId: string, store: ArtifactStore): Promise<void> {
-		const uri = store.resolveDesignPath(`prompts/${taskId}.prompt.md`);
-		if (!(await store.fileExists(`prompts/${taskId}.prompt.md`))) {
-			this.postToast('error', `Prompt file for ${taskId} does not exist.`);
-			return;
-		}
-		await vscode.commands.executeCommand('vscode.open', uri);
-	}
-
-	private async openLastRunLog(store: ArtifactStore): Promise<void> {
-		if (!(await store.fileExists('runs/last.json'))) {
-			this.postToast('error', 'No last run log found yet.');
-			return;
-		}
-		const uri = store.resolveDesignPath('runs/last.json');
-		await vscode.commands.executeCommand('vscode.open', uri);
-	}
-
-	private postToast(level: 'info' | 'error', message: string): void {
-		this.panel.webview.postMessage({
-			type: 'toast',
-			level,
-			message,
-		});
-	}
-
-	private findFirstTaskId(backlog: Backlog): string | undefined {
-		for (const epic of backlog.epics) {
-			for (const story of epic.stories) {
-				for (const task of story.tasks) {
-					return task.id;
-				}
-			}
-		}
-		return undefined;
-	}
-
-	private findStoryForTask(backlog: Backlog, taskId: string): Backlog['epics'][number]['stories'][number] | undefined {
-		for (const epic of backlog.epics) {
-			for (const story of epic.stories) {
-				if (story.tasks.some((task) => task.id === taskId)) {
-					return story;
-				}
-			}
-		}
-		return undefined;
-	}
-
-	private async getServices(): Promise<StudioServices | null> {
-		const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
-		if (!workspaceRoot) {
-			const defaultWorkspaceUri = vscode.Uri.file(DEFAULT_WORKSPACE_PATH);
-			await vscode.commands.executeCommand('vscode.openFolder', defaultWorkspaceUri, false);
-			return null;
-		}
-
-		const store = new ArtifactStore(workspaceRoot);
-		const scanner = new WorkspaceScanner(workspaceRoot, store);
-		this.outputChannel.appendLine(`[config] workspace=${workspaceRoot.fsPath} llm.provider=openai`);
-		const llmProvider = createLlmProvider();
-		const pipeline = new Pipeline(store, { llmProvider, outputChannel: this.outputChannel });
-		return { workspaceRoot, store, scanner, pipeline };
-	}
-
-	private getHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
-		const nonce = getNonce();
-		const rootPath = extensionUri.toString();
-		return `<!DOCTYPE html>
+class DesignStudioPanel {
+    panel;
+    context;
+    extensionUri;
+    static viewType = 'designAddin.studio';
+    static currentPanel;
+    static async createOrShow(context, extensionUri) {
+        const column = vscode.window.activeTextEditor?.viewColumn ?? vscode.ViewColumn.One;
+        if (DesignStudioPanel.currentPanel) {
+            DesignStudioPanel.currentPanel.panel.reveal(column);
+            await DesignStudioPanel.currentPanel.refreshAll();
+            return;
+        }
+        const panel = vscode.window.createWebviewPanel(DesignStudioPanel.viewType, 'Design Studio', column, {
+            enableScripts: true,
+            retainContextWhenHidden: true,
+        });
+        DesignStudioPanel.currentPanel = new DesignStudioPanel(panel, context, extensionUri);
+        await DesignStudioPanel.currentPanel.initialize();
+    }
+    constructor(panel, context, extensionUri) {
+        this.panel = panel;
+        this.context = context;
+        this.extensionUri = extensionUri;
+        this.panel.onDidDispose(() => this.dispose(), null, this.context.subscriptions);
+        this.panel.webview.onDidReceiveMessage((message) => {
+            void this.handleMessage(message);
+        }, null, this.context.subscriptions);
+    }
+    async initialize() {
+        this.panel.webview.html = this.getHtml(this.panel.webview, this.extensionUri);
+        await this.refreshAll();
+    }
+    dispose() {
+        DesignStudioPanel.currentPanel = undefined;
+    }
+    async handleMessage(message) {
+        try {
+            const services = await this.getServices();
+            if (!services) {
+                return;
+            }
+            await services.store.ensureDesignFolder();
+            switch (message.type) {
+                case 'newIdea':
+                    await services.pipeline.newIdea();
+                    this.postToast('info', 'Created .ai-design/idea.json');
+                    await this.refreshAll(services);
+                    return;
+                case 'saveIdea':
+                    await this.saveIdea(services.store, message.businessIdea);
+                    return;
+                case 'generateBrief':
+                    await services.pipeline.generateBrief();
+                    this.postToast('info', 'Created .ai-design/brief.v1.md');
+                    await this.refreshAll(services);
+                    return;
+                case 'generateArchitecture':
+                    await services.pipeline.generateArchitecture();
+                    this.postToast('info', 'Created .ai-design/architecture.v1.md');
+                    await this.refreshAll(services);
+                    return;
+                case 'generateBacklog':
+                    await services.pipeline.generateBacklog();
+                    this.postToast('info', 'Created backlog artifacts');
+                    await this.refreshAll(services);
+                    return;
+                case 'prompts':
+                    await this.handlePromptsAction(services, message.taskId);
+                    await this.refreshAll(services);
+                    return;
+                case 'generatePromptForTask':
+                    await this.handlePromptsAction(services, message.taskId);
+                    await this.refreshAll(services);
+                    return;
+                case 'runCodex':
+                    await this.runTaskWithCodex(services, message.taskId);
+                    await this.refreshAll(services);
+                    return;
+                case 'selectTask':
+                    await this.sendPromptForTask(message.taskId, services.store);
+                    return;
+                case 'openPromptFile':
+                    await this.openPromptFile(message.taskId, services.store);
+                    return;
+                case 'openRunLog':
+                    await this.openLastRunLog(services.store);
+                    return;
+            }
+        }
+        catch (error) {
+            const messageText = error instanceof Error ? error.message : String(error);
+            this.postToast('error', messageText);
+        }
+    }
+    async runTaskWithCodex(services, requestedTaskId) {
+        if (!(await services.store.fileExists('backlog.v1.json'))) {
+            this.postToast('error', 'Backlog not found. Generate backlog first.');
+            return;
+        }
+        const backlog = await services.store.readJson('backlog.v1.json');
+        const taskId = requestedTaskId ?? this.findFirstTaskId(backlog);
+        if (!taskId) {
+            this.postToast('error', 'No tasks found in backlog.');
+            return;
+        }
+        if (!this.findStoryForTask(backlog, taskId)) {
+            this.postToast('error', `Task ${taskId} not found in backlog.`);
+            return;
+        }
+        const promptUri = await this.ensurePromptForTask(taskId, backlog, services);
+        const runner = new CodexRunner_1.CodexRunner(services.store);
+        const runLog = await runner.runPrompt(promptUri, services.workspaceRoot, taskId);
+        this.panel.webview.postMessage({
+            type: 'runLog',
+            content: `${runLog.startedAt} started ${runLog.taskId} using terminal "${runLog.terminalName}"`,
+        });
+        this.panel.webview.postMessage({
+            type: 'lastRun',
+            json: runLog,
+        });
+        this.postToast('info', `Started Codex for ${taskId}. Run log: ${runLog.runLogPath}`);
+    }
+    async handlePromptsAction(services, requestedTaskId) {
+        if (!(await services.store.fileExists('backlog.v1.json'))) {
+            this.postToast('error', 'Backlog not found. Generate backlog first.');
+            return;
+        }
+        const backlog = await services.store.readJson('backlog.v1.json');
+        const taskId = requestedTaskId ?? this.findFirstTaskId(backlog);
+        if (!taskId) {
+            this.postToast('error', 'No tasks found in backlog.');
+            return;
+        }
+        if (!this.findStoryForTask(backlog, taskId)) {
+            this.postToast('error', `Task ${taskId} not found in backlog.`);
+            return;
+        }
+        await this.ensurePromptForTask(taskId, backlog, services);
+        this.postToast('info', `Created prompt for ${taskId}`);
+        await this.sendPromptForTask(taskId, services.store);
+    }
+    async ensurePromptForTask(taskId, backlog, services) {
+        const promptRelativePath = `prompts/${taskId}.prompt.md`;
+        if (!(await services.store.fileExists(promptRelativePath))) {
+            await services.scanner.scanAndStoreContextBundle();
+            await services.pipeline.generatePromptForTask(taskId, backlog);
+        }
+        return services.store.resolveDesignPath(promptRelativePath);
+    }
+    async refreshAll(existingServices) {
+        const services = existingServices ?? (await this.getServices());
+        if (!services) {
+            return;
+        }
+        await services.store.ensureDesignFolder();
+        await services.scanner.scanAndStoreContextBundle();
+        await this.sendIdea(services.store);
+        await this.sendArtifact('brief', 'brief.v1.md', services.store);
+        await this.sendArtifact('architecture', 'architecture.v1.md', services.store);
+        if (await services.store.fileExists('backlog.v1.json')) {
+            const backlogJson = await services.store.readJson('backlog.v1.json');
+            const backlogMarkdown = await services.store.readText('backlog.v1.md').catch(() => '');
+            this.panel.webview.postMessage({
+                type: 'backlog',
+                json: backlogJson,
+                markdown: backlogMarkdown,
+            });
+        }
+        else {
+            this.panel.webview.postMessage({
+                type: 'backlog',
+                json: null,
+                markdown: '',
+            });
+        }
+        await this.sendPromptsList(services.store);
+        await this.sendLastRun(services.store);
+    }
+    async sendIdea(store) {
+        let idea = null;
+        if (await store.fileExists('idea.json')) {
+            try {
+                idea = await store.readJson('idea.json');
+            }
+            catch {
+                idea = null;
+            }
+        }
+        this.panel.webview.postMessage({
+            type: 'idea',
+            businessIdea: idea?.businessIdea ?? '',
+        });
+    }
+    async saveIdea(store, businessIdea) {
+        let existingIdea = {};
+        if (await store.fileExists('idea.json')) {
+            try {
+                existingIdea = await store.readJson('idea.json');
+            }
+            catch {
+                existingIdea = {};
+            }
+        }
+        const merged = {
+            version: existingIdea.version ?? 1,
+            createdAt: existingIdea.createdAt ?? new Date().toISOString(),
+            title: existingIdea.title ?? 'Design Addin Idea',
+            problem: existingIdea.problem ??
+                'Describe the core workflow or pain point this addin should solve.',
+            outcome: existingIdea.outcome ??
+                'Describe the expected measurable outcome if this succeeds.',
+            businessIdea,
+        };
+        await store.writeJson('idea.json', merged);
+        this.panel.webview.postMessage({
+            type: 'ideaSaved',
+            at: new Date().toISOString(),
+        });
+    }
+    async sendArtifact(name, relativePath, store) {
+        let content = '';
+        if (await store.fileExists(relativePath)) {
+            content = await store.readText(relativePath);
+        }
+        this.panel.webview.postMessage({
+            type: 'artifact',
+            name,
+            content,
+        });
+    }
+    async sendPromptsList(store) {
+        const promptsRoot = store.resolveDesignPath('prompts');
+        const items = [];
+        try {
+            const entries = await vscode.workspace.fs.readDirectory(promptsRoot);
+            for (const [name, fileType] of entries) {
+                if (fileType !== vscode.FileType.File || !name.endsWith('.prompt.md')) {
+                    continue;
+                }
+                const taskId = name.replace('.prompt.md', '');
+                items.push({
+                    taskId,
+                    promptPath: `.ai-design/prompts/${name}`,
+                });
+            }
+        }
+        catch {
+            // Prompts directory may not exist yet.
+        }
+        this.panel.webview.postMessage({
+            type: 'promptsList',
+            items,
+        });
+    }
+    async sendPromptForTask(taskId, store) {
+        const promptPath = `prompts/${taskId}.prompt.md`;
+        let content = '';
+        if (await store.fileExists(promptPath)) {
+            content = await store.readText(promptPath);
+        }
+        this.panel.webview.postMessage({
+            type: 'promptPreview',
+            taskId,
+            content,
+        });
+        if (!content) {
+            this.postToast('info', `No prompt exists for ${taskId} yet.`);
+        }
+    }
+    async sendLastRun(store) {
+        let lastRun = null;
+        if (await store.fileExists('runs/last.json')) {
+            lastRun = await store.readJson('runs/last.json');
+        }
+        this.panel.webview.postMessage({
+            type: 'lastRun',
+            json: lastRun,
+        });
+    }
+    async openPromptFile(taskId, store) {
+        const uri = store.resolveDesignPath(`prompts/${taskId}.prompt.md`);
+        if (!(await store.fileExists(`prompts/${taskId}.prompt.md`))) {
+            this.postToast('error', `Prompt file for ${taskId} does not exist.`);
+            return;
+        }
+        await vscode.commands.executeCommand('vscode.open', uri);
+    }
+    async openLastRunLog(store) {
+        if (!(await store.fileExists('runs/last.json'))) {
+            this.postToast('error', 'No last run log found yet.');
+            return;
+        }
+        const uri = store.resolveDesignPath('runs/last.json');
+        await vscode.commands.executeCommand('vscode.open', uri);
+    }
+    postToast(level, message) {
+        this.panel.webview.postMessage({
+            type: 'toast',
+            level,
+            message,
+        });
+    }
+    findFirstTaskId(backlog) {
+        for (const epic of backlog.epics) {
+            for (const story of epic.stories) {
+                for (const task of story.tasks) {
+                    return task.id;
+                }
+            }
+        }
+        return undefined;
+    }
+    findStoryForTask(backlog, taskId) {
+        for (const epic of backlog.epics) {
+            for (const story of epic.stories) {
+                if (story.tasks.some((task) => task.id === taskId)) {
+                    return story;
+                }
+            }
+        }
+        return undefined;
+    }
+    async getServices() {
+        const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri;
+        if (!workspaceRoot) {
+            const defaultWorkspaceUri = vscode.Uri.file(DEFAULT_WORKSPACE_PATH);
+            await vscode.commands.executeCommand('vscode.openFolder', defaultWorkspaceUri, false);
+            return null;
+        }
+        const store = new ArtifactStore_1.ArtifactStore(workspaceRoot);
+        const scanner = new WorkspaceScanner_1.WorkspaceScanner(workspaceRoot, store);
+        const llmEnabled = vscode.workspace.getConfiguration('designAddin.llm').get('enabled', false);
+        const llmProviderName = vscode.workspace.getConfiguration('designAddin.llm').get('provider', 'stub');
+        const llmProvider = (0, LlmProviderFactory_1.createLlmProvider)(llmEnabled, llmProviderName);
+        const pipeline = new Pipeline_1.Pipeline(store, { llmEnabled, llmProvider });
+        return { workspaceRoot, store, scanner, pipeline };
+    }
+    getHtml(webview, extensionUri) {
+        const nonce = getNonce();
+        const rootPath = extensionUri.toString();
+        return `<!DOCTYPE html>
 <html lang="en">
 <head>
 	<meta charset="UTF-8" />
@@ -517,16 +492,12 @@ export class DesignStudioPanel {
 			border: 1px solid var(--line);
 			border-radius: 6px;
 			padding: 10px;
-			background: #000;
-			color: #fff;
+			background: #0b1221;
 			line-height: 1.45;
-		}
-		.markdown-output * {
-			color: #fff;
 		}
 		.markdown-output h1, .markdown-output h2, .markdown-output h3 {
 			margin: 0 0 8px;
-			color: #fff;
+			color: #f8fafc;
 		}
 		.markdown-output p {
 			margin: 0 0 8px;
@@ -536,23 +507,17 @@ export class DesignStudioPanel {
 			padding: 0;
 		}
 		.markdown-output pre {
-			background: #000;
+			background: #020617;
 			border: 1px solid var(--line);
 			border-radius: 6px;
 			padding: 8px;
 			overflow: auto;
 			white-space: pre-wrap;
-			color: #fff;
 		}
 		.markdown-output code {
-			background: #000;
-			color: #fff;
+			background: #1e293b;
 			border-radius: 4px;
 			padding: 1px 4px;
-		}
-		.markdown-output ::selection {
-			background: #1f2937;
-			color: #fff;
 		}
 		.idea-input {
 			width: 100%;
@@ -1201,21 +1166,15 @@ export class DesignStudioPanel {
 	</script>
 </body>
 </html>`;
-	}
+    }
 }
-
-interface StudioServices {
-	workspaceRoot: vscode.Uri;
-	store: ArtifactStore;
-	scanner: WorkspaceScanner;
-	pipeline: Pipeline;
+exports.DesignStudioPanel = DesignStudioPanel;
+function getNonce() {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    let nonce = '';
+    for (let i = 0; i < 16; i += 1) {
+        nonce += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return nonce;
 }
-
-function getNonce(): string {
-	const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-	let nonce = '';
-	for (let i = 0; i < 16; i += 1) {
-		nonce += chars.charAt(Math.floor(Math.random() * chars.length));
-	}
-	return nonce;
-}
+//# sourceMappingURL=DesignStudioPanel.js.map

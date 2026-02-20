@@ -44,29 +44,58 @@
       {
         "command": "designAddin.rescanWorkspaceContext",
         "title": "Design Addin: Rescan Workspace Context"
+      },
+      {
+        "command": "designAddin.generateArtifacts",
+        "title": "Design Addin: Generate Artifacts (OpenAI)"
       }
     ],
     "configuration": {
       "title": "Design Addin",
       "properties": {
-        "designAddin.llm.enabled": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable LLM-backed artifact generation. Disabled keeps deterministic offline generation."
-        },
         "designAddin.llm.provider": {
           "type": "string",
           "enum": [
-            "openai",
-            "stub"
+            "openai"
           ],
-          "default": "stub",
-          "description": "LLM provider selection. OpenAI is reserved for future integration; stub is deterministic/offline."
+          "default": "openai",
+          "description": "LLM provider selection used for artifact generation."
         },
         "designAddin.llm.apiKey": {
           "type": "string",
           "default": "",
           "description": "API key placeholder for future LLM provider integration. Prefer secret storage when implemented."
+        },
+        "designAddin.llm.model": {
+          "type": "string",
+          "default": "gpt-4.1-mini",
+          "description": "Model used for OpenAI markdown generation."
+        },
+        "designAddin.llm.temperature": {
+          "type": "number",
+          "default": 0.2,
+          "minimum": 0,
+          "maximum": 2,
+          "description": "Sampling temperature for OpenAI markdown generation."
+        },
+        "designAddin.llm.maxTokens": {
+          "type": "number",
+          "default": 3000,
+          "minimum": 256,
+          "maximum": 8000,
+          "description": "Maximum completion tokens for OpenAI markdown generation."
+        },
+        "designAddin.openaiModel": {
+          "type": "string",
+          "default": "gpt-4.1-mini",
+          "description": "Model used by the generateArtifacts command."
+        },
+        "designAddin.maxOutputTokens": {
+          "type": "number",
+          "default": 3000,
+          "minimum": 256,
+          "maximum": 8000,
+          "description": "Maximum output tokens per OpenAI generation step for generateArtifacts."
         }
       }
     }

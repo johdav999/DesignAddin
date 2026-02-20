@@ -34,7 +34,7 @@ __export(extension_exports, {
   deactivate: () => deactivate
 });
 module.exports = __toCommonJS(extension_exports);
-var vscode5 = __toESM(require("vscode"));
+var vscode8 = __toESM(require("vscode"));
 
 // src/core/ArtifactStore.ts
 var vscode = __toESM(require("vscode"));
@@ -94,284 +94,248 @@ var ArtifactStore = class {
   }
 };
 
-// src/core/PromptBuilder.ts
-var PromptBuilder = class {
-  buildPrompt(task, backlog, contextBundle) {
-    const storyInfo = this.findStoryForTask(task.id, backlog);
-    const stack = contextBundle?.stackHint ?? "unknown";
-    const buildCommands = this.getBuildCommands(contextBundle);
-    const filesToTouch = this.guessFilesToTouch(task, contextBundle);
-    const acceptanceCriteria = storyInfo?.acceptanceCriteria ?? [];
-    const lines = [];
-    lines.push(`# Task Prompt: ${task.id}`);
-    lines.push("");
-    lines.push("## Context Summary");
-    lines.push(`- Stack hint: ${stack}`);
-    lines.push(`- Workspace root: ${contextBundle?.rootFolder ?? "unknown"}`);
-    lines.push(`- Backlog generated at: ${backlog.generatedAt}`);
-    lines.push("- Top relevant files:");
-    for (const file of (contextBundle?.topRelevantFiles ?? []).slice(0, 10)) {
-      lines.push(`  - ${file}`);
-    }
-    if (!contextBundle?.topRelevantFiles?.length) {
-      lines.push("  - src/extension.ts");
-      lines.push("  - src/ui/DesignStudioPanel.ts");
-    }
-    lines.push("");
-    lines.push("## Objective");
-    lines.push(`Implement "${task.id}: ${task.title}".`);
-    if (storyInfo) {
-      lines.push(`Story: ${storyInfo.storyId} - ${storyInfo.storyTitle}`);
-    }
-    lines.push("");
-    lines.push("## Constraints");
-    lines.push("- Only touch files in this repository/workspace.");
-    lines.push("- Avoid broad refactors; keep changes focused on this task.");
-    lines.push("- Preserve existing behavior unless required by acceptance criteria.");
-    lines.push("- Keep naming and code style consistent with surrounding code.");
-    lines.push("");
-    lines.push("## Implementation Plan Checklist");
-    lines.push("- [ ] Inspect current code paths and identify exact files to edit.");
-    lines.push("- [ ] Implement the smallest viable change for this task.");
-    lines.push("- [ ] Add or update tests where behavior is changed.");
-    lines.push("- [ ] Verify build/lint/test commands succeed.");
-    lines.push("");
-    lines.push("## Acceptance Criteria");
-    if (acceptanceCriteria.length === 0) {
-      lines.push("- No explicit acceptance criteria found in backlog; infer minimal correctness from task title.");
-    } else {
-      for (const criterion of acceptanceCriteria) {
-        lines.push(`- ${criterion}`);
-      }
-    }
-    lines.push("");
-    lines.push("## Tests And Commands");
-    for (const command of buildCommands) {
-      lines.push(`- ${command}`);
-    }
-    lines.push("");
-    lines.push("## Files To Touch (Guessed)");
-    for (const file of filesToTouch) {
-      lines.push(`- ${file}`);
-    }
-    lines.push("");
-    lines.push("## Definition Of Done");
-    lines.push("- Acceptance criteria above are satisfied.");
-    lines.push("- Code builds and lint/tests pass for relevant stack commands.");
-    lines.push("- Prompt consumer returns:");
-    lines.push("  - List of touched files");
-    lines.push("  - Brief summary of what changed and why");
-    lines.push("");
-    lines.push("## Output Requirements");
-    lines.push("- Report exactly which files were modified.");
-    lines.push("- Provide a concise change summary.");
-    lines.push("- Mention any follow-up risks or TODOs.");
-    lines.push("");
-    return lines.join("\n");
-  }
-  findStoryForTask(taskId, backlog) {
-    for (const epic of backlog.epics) {
-      for (const story of epic.stories) {
-        if (story.tasks.some((task) => task.id === taskId)) {
-          return {
-            storyId: story.id,
-            storyTitle: story.title,
-            acceptanceCriteria: story.acceptanceCriteria
-          };
-        }
-      }
-    }
-    return void 0;
-  }
-  getBuildCommands(contextBundle) {
-    const candidates = contextBundle?.candidateBuildCommands ?? [];
-    if (candidates.length > 0) {
-      return candidates;
-    }
-    return ["npm test", "npm run build", "dotnet test", "dotnet build"];
-  }
-  guessFilesToTouch(task, contextBundle) {
-    const guessed = /* @__PURE__ */ new Set();
-    const relevantFiles = contextBundle?.topRelevantFiles ?? [];
-    const lowerTitle = task.title.toLowerCase();
-    const pinIfExists = (target) => {
-      const match = relevantFiles.find((file) => file.toLowerCase().endsWith(target.toLowerCase()));
-      if (match) {
-        guessed.add(match);
-      }
-    };
-    pinIfExists("src/extension.ts");
-    pinIfExists("src/ui/DesignStudioPanel.ts");
-    pinIfExists("src/core/Pipeline.ts");
-    pinIfExists("src/core/ArtifactStore.ts");
-    pinIfExists("src/core/WorkspaceScanner.ts");
-    pinIfExists("README.md");
-    for (const file of relevantFiles) {
-      if (guessed.size >= 6) {
-        break;
-      }
-      const lower = file.toLowerCase();
-      if (lowerTitle.includes("ui") && lower.includes("ui/")) {
-        guessed.add(file);
-      } else if (lowerTitle.includes("command") && lower.includes("extension.ts")) {
-        guessed.add(file);
-      } else if (lowerTitle.includes("artifact") && lower.includes("core/")) {
-        guessed.add(file);
-      } else if (lowerTitle.includes("prompt") && lower.includes("prompt")) {
-        guessed.add(file);
-      }
-    }
-    if (guessed.size === 0) {
-      guessed.add("src/extension.ts");
-      guessed.add("src/ui/DesignStudioPanel.ts");
-    }
-    return Array.from(guessed).slice(0, 8);
-  }
-};
+// src/llm/OpenAiPromptTemplates.ts
+function buildBriefPrompt(context) {
+  return `SYSTEM:
+You are an expert product manager and technical writer. Produce clear, structured output and avoid fluff.
+Infer the product domain from the idea and keep all recommendations aligned to that domain.
+Do not assume this is a VS Code extension unless the idea explicitly says so.
 
-// src/llm/StubLlmProvider.ts
-var StubLlmProvider = class {
-  constructor(enabled) {
-    this.enabled = enabled;
-  }
-  async generateJson(_schemaName, _prompt) {
-    if (!this.enabled) {
-      throw new Error("LLM not configured");
+USER:
+Create a product brief for the product described in this idea.
+
+IDEA:
+<<<
+${context.idea}
+>>>
+
+Return Markdown with exactly these sections:
+
+# One-liner
+# Problem
+# Target users & primary persona
+# Top use cases (5)
+# Functional requirements
+# Non-goals
+# Quality attributes (NFRs)
+# Constraints & assumptions
+# Success metrics
+# Risks & mitigations
+# Open questions`;
+}
+function buildArchitecturePrompt(context) {
+  return `SYSTEM:
+You are a senior software architect. You design pragmatic architectures with clear module boundaries, data contracts, and implementation details.
+Infer the target platform and stack from IDEA and BRIEF.
+Do not assume this is a VS Code extension unless the idea explicitly says so.
+
+USER:
+Design the technical architecture for the product described in IDEA and BRIEF.
+
+IDEA:
+<<<
+${context.idea}
+>>>
+
+BRIEF:
+<<<
+${context.brief ?? ""}
+>>>
+
+Return Markdown with exactly these sections:
+
+# Architecture overview
+# Key decisions
+# Components (diagram in text + responsibilities)
+# Data model & storage (include persistence choice and schemas)
+# Interface design (APIs, commands, events, UI interactions, and integrations as appropriate)
+# Security & privacy
+# Error handling & observability
+# Performance considerations
+# Testing strategy
+# Incremental delivery plan (phases)`;
+}
+function buildBacklogPrompt(context) {
+  return `SYSTEM:
+You are a technical product owner. You create backlogs with epics, user stories, acceptance criteria, and implementation notes.
+Infer the product domain and implementation stack from IDEA, BRIEF, and ARCHITECTURE.
+Do not assume VS Code extension details unless explicitly stated.
+
+USER:
+Create an implementation backlog for the product described below.
+
+IDEA:
+<<<
+${context.idea}
+>>>
+
+BRIEF:
+<<<
+${context.brief ?? ""}
+>>>
+
+ARCHITECTURE:
+<<<
+${context.architecture ?? ""}
+>>>
+
+Return Markdown with exactly these sections:
+
+# Epics
+(List 4-8 epics with goal statements)
+
+# User stories
+For each epic, list 4-10 stories. Each story MUST include:
+- Story ID (e.g. ST-101)
+- Title
+- User story sentence
+- Acceptance criteria (3-7 bullet points)
+- Notes (important edge cases / constraints)
+- Test notes (how to verify)
+
+# Milestones
+(2-6 milestones mapping story IDs to releases)`;
+}
+function buildBacklogJsonPrompt(backlogMarkdown) {
+  return `Convert the following backlog markdown into strict JSON.
+
+Return ONLY a single \`\`\`json fenced block with this exact shape:
+{
+  "generatedAt": "ISO-8601 string",
+  "epics": [
+    {
+      "id": "string",
+      "title": "string",
+      "stories": [
+        {
+          "id": "string",
+          "title": "string",
+          "acceptanceCriteria": ["string"],
+          "tasks": [
+            {
+              "id": "string",
+              "title": "string",
+              "tags": ["string"],
+              "status": "todo|in_progress|done",
+              "promptPath": null
+            }
+          ]
+        }
+      ]
     }
-    throw new Error("LLM provider not implemented yet");
-  }
-};
+  ]
+}
+
+BACKLOG MARKDOWN:
+<<<
+${backlogMarkdown}
+>>>`;
+}
+function buildTaskPromptPrompt(context) {
+  const criteria = context.acceptanceCriteria.length > 0 ? context.acceptanceCriteria.map((criterion) => `- ${criterion}`).join("\n") : "- No explicit acceptance criteria were provided for this story.";
+  return `Write a coding-agent implementation prompt for this exact backlog task.
+
+TASK:
+- ID: ${context.taskId}
+- Title: ${context.taskTitle}
+- Story: ${context.storyId ?? "unknown"} ${context.storyTitle ?? ""}
+
+ACCEPTANCE CRITERIA:
+${criteria}
+
+ARCHITECTURE:
+<<<
+${context.architecture}
+>>>
+
+BACKLOG:
+<<<
+${context.backlog}
+>>>
+
+WORKSPACE CONTEXT:
+<<<
+${context.contextSummary}
+>>>
+
+Return Markdown with exactly these sections:
+# Goal
+# Scope
+# Files to touch
+# Implementation plan
+# Validation steps
+# Risks and follow-ups`;
+}
 
 // src/core/Pipeline.ts
 var Pipeline = class {
   constructor(store, options) {
     this.store = store;
-    this.llmEnabled = options?.llmEnabled ?? false;
-    this.llmProvider = options?.llmProvider ?? new StubLlmProvider(false);
+    this.llmProvider = options.llmProvider;
+    this.outputChannel = options.outputChannel;
   }
-  llmEnabled;
   llmProvider;
+  outputChannel;
   async newIdea() {
-    if (this.llmEnabled) {
-      await this.llmProvider.generateJson("idea", "Generate idea artifact JSON");
-    }
     const artifact = {
       version: 1,
       createdAt: (/* @__PURE__ */ new Date()).toISOString(),
-      title: "Design Addin Idea",
-      problem: "Describe the core workflow or pain point this addin should solve.",
+      title: "Business Idea",
+      problem: "Describe the core workflow or pain point this product should solve.",
       outcome: "Describe the expected measurable outcome if this succeeds.",
       businessIdea: ""
     };
     return this.store.writeJson("idea.json", artifact);
   }
   async generateBrief() {
-    if (this.llmEnabled) {
-      await this.llmProvider.generateJson("brief", "Generate product brief markdown");
+    const started = Date.now();
+    this.logStage("brief", "start");
+    try {
+      const ideaText = await this.getIdeaText();
+      this.logStage("brief", `idea input loaded (${ideaText.length} chars)`);
+      const prompt = buildBriefPrompt({ idea: ideaText });
+      this.logStage("brief", `requesting LLM markdown (${prompt.length} prompt chars)`);
+      const result = await this.llmProvider.generateJson("briefMarkdown", prompt);
+      const content = this.requireMarkdown(result?.markdown, "brief");
+      this.logStage("brief", `writing .ai-design/brief.v1.md (${content.length} chars)`);
+      const uri = await this.store.writeMarkdown("brief.v1.md", content);
+      this.logStage("brief", `done in ${Date.now() - started}ms (${uri.fsPath})`);
+      return uri;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logStage("brief", `failed: ${message}`);
+      throw error;
     }
-    const content = `# Product Brief v1
-
-## Problem
-Placeholder: summarize the user problem and why it matters.
-
-## Users
-Placeholder: describe primary users and key jobs-to-be-done.
-
-## Goals
-- Placeholder goal 1
-- Placeholder goal 2
-
-## Non-Goals
-- Placeholder non-goal 1
-
-## Success Metrics
-- Placeholder metric 1
-`;
-    return this.store.writeMarkdown("brief.v1.md", content);
   }
   async generateArchitecture() {
-    if (this.llmEnabled) {
-      await this.llmProvider.generateJson("architecture", "Generate architecture markdown");
-    }
-    const content = `# Architecture v1
-
-## System Overview
-Placeholder: describe extension-host modules and artifact flow.
-
-## Components
-- Artifact Store
-- Workspace Scanner
-- Pipeline
-- Command Handlers
-
-## Data Contracts
-Placeholder: define key file formats under \`.ai-design/\`.
-
-## Risks
-- Placeholder technical risk
-- Placeholder delivery risk
-`;
+    this.logStage("architecture", "start");
+    const ideaText = await this.getIdeaText();
+    const briefText = await this.readMarkdownIfExists("brief.v1.md");
+    const prompt = buildArchitecturePrompt({ idea: ideaText, brief: briefText });
+    this.logStage("architecture", `requesting LLM markdown (${prompt.length} prompt chars)`);
+    const result = await this.llmProvider.generateJson("architectureMarkdown", prompt);
+    const content = this.requireMarkdown(result?.markdown, "architecture");
+    this.logStage("architecture", `writing .ai-design/architecture.v1.md (${content.length} chars)`);
     return this.store.writeMarkdown("architecture.v1.md", content);
   }
   async generateBacklog() {
-    if (this.llmEnabled) {
-      await this.llmProvider.generateJson("backlog", "Generate backlog JSON");
-    }
-    const backlog = {
-      version: 1,
-      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      epics: [
-        {
-          id: "EPIC-1",
-          title: "MVP Extension Workflow",
-          stories: [
-            {
-              id: "STORY-1",
-              title: "Generate core artifacts",
-              acceptanceCriteria: [
-                "Commands create files under .ai-design/",
-                "Backlog is available as JSON and Markdown"
-              ],
-              tasks: [
-                {
-                  id: "TASK-1",
-                  title: "Implement artifact storage utilities",
-                  tags: ["BE"],
-                  status: "todo",
-                  promptPath: null
-                },
-                {
-                  id: "TASK-2",
-                  title: "Wire command handlers in extension activation",
-                  tags: ["BE"],
-                  status: "todo",
-                  promptPath: null
-                }
-              ]
-            },
-            {
-              id: "STORY-2",
-              title: "Support task-level prompt generation",
-              acceptanceCriteria: [
-                "User can select a task from Quick Pick",
-                "Prompt template is created for selected task"
-              ],
-              tasks: [
-                {
-                  id: "TASK-3",
-                  title: "Generate prompt file for backlog task",
-                  tags: ["FE", "BE"],
-                  status: "todo",
-                  promptPath: null
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    };
+    this.logStage("backlog", "start");
+    const ideaText = await this.getIdeaText();
+    const briefText = await this.readMarkdownIfExists("brief.v1.md");
+    const architectureText = await this.readMarkdownIfExists("architecture.v1.md");
+    const markdownPrompt = buildBacklogPrompt({ idea: ideaText, brief: briefText, architecture: architectureText });
+    this.logStage("backlog", `requesting markdown (${markdownPrompt.length} prompt chars)`);
+    const markdownResult = await this.llmProvider.generateJson("backlogMarkdown", markdownPrompt);
+    const backlogMarkdown = this.requireMarkdown(markdownResult?.markdown, "backlog");
+    const markdownUri = await this.store.writeMarkdown("backlog.v1.md", backlogMarkdown);
+    this.logStage("backlog", `wrote backlog markdown (${backlogMarkdown.length} chars)`);
+    const jsonPrompt = buildBacklogJsonPrompt(backlogMarkdown);
+    this.logStage("backlog", `requesting JSON conversion (${jsonPrompt.length} prompt chars)`);
+    const jsonResult = await this.llmProvider.generateJson("backlogJson", jsonPrompt);
+    const backlogJsonText = this.requireMarkdown(jsonResult?.markdown, "backlog json");
+    const backlog = this.parseBacklogFromMarkdownResponse(backlogJsonText);
     const jsonUri = await this.store.writeJson("backlog.v1.json", backlog);
-    const markdownUri = await this.store.writeMarkdown("backlog.v1.md", this.renderBacklog(backlog));
+    this.logStage("backlog", `wrote backlog json with ${backlog.epics.length} epics`);
     return { jsonUri, markdownUri };
   }
   async generatePromptForTask(taskId, backlog) {
@@ -379,15 +343,24 @@ Placeholder: define key file formats under \`.ai-design/\`.
     if (!task) {
       throw new Error(`Task ${taskId} not found in backlog.`);
     }
+    const story = this.findStoryForTask(backlog, taskId);
     const contextBundle = await this.tryReadContextBundle();
-    if (this.llmEnabled) {
-      await this.llmProvider.generateJson(
-        "taskPrompt",
-        `Generate prompt markdown for task ${taskId}`
-      );
-    }
-    const promptBuilder = new PromptBuilder();
-    const content = promptBuilder.buildPrompt(task, backlog, contextBundle);
+    const architectureText = await this.readMarkdownIfExists("architecture.v1.md");
+    const backlogText = await this.readMarkdownIfExists("backlog.v1.md");
+    const prompt = buildTaskPromptPrompt({
+      taskId: task.id,
+      taskTitle: task.title,
+      storyId: story?.id,
+      storyTitle: story?.title,
+      acceptanceCriteria: story?.acceptanceCriteria ?? [],
+      architecture: architectureText,
+      backlog: backlogText,
+      contextSummary: this.buildContextSummary(contextBundle)
+    });
+    this.logStage("prompts", `requesting prompt for ${task.id} (${prompt.length} prompt chars)`);
+    const result = await this.llmProvider.generateJson("promptTaskMarkdown", prompt);
+    const content = this.requireMarkdown(result?.markdown, `prompt for ${task.id}`);
+    this.logStage("prompts", `writing .ai-design/prompts/${taskId}.prompt.md (${content.length} chars)`);
     return this.store.writeMarkdown(`prompts/${taskId}.prompt.md`, content);
   }
   findTaskById(backlog, taskId) {
@@ -396,6 +369,18 @@ Placeholder: define key file formats under \`.ai-design/\`.
         for (const task of story.tasks) {
           if (task.id === taskId) {
             return task;
+          }
+        }
+      }
+    }
+    return void 0;
+  }
+  findStoryForTask(backlog, taskId) {
+    for (const epic of backlog.epics) {
+      for (const story of epic.stories) {
+        for (const task of story.tasks) {
+          if (task.id === taskId) {
+            return story;
           }
         }
       }
@@ -412,32 +397,173 @@ Placeholder: define key file formats under \`.ai-design/\`.
       return void 0;
     }
   }
-  renderBacklog(backlog) {
-    const lines = [];
-    lines.push("# Backlog v1");
-    lines.push("");
-    lines.push(`Generated: ${backlog.generatedAt}`);
-    lines.push("");
-    for (const epic of backlog.epics) {
-      lines.push(`## ${epic.id}: ${epic.title}`);
-      lines.push("");
-      for (const story of epic.stories) {
-        lines.push(`### ${story.id}: ${story.title}`);
-        lines.push("");
-        lines.push("Acceptance Criteria:");
-        for (const criterion of story.acceptanceCriteria) {
-          lines.push(`- ${criterion}`);
-        }
-        lines.push("");
-        lines.push("Tasks:");
-        for (const task of story.tasks) {
-          const tags = task.tags.join(", ");
-          lines.push(`- ${task.id} | ${task.title} | status=${task.status} | tags=${tags}`);
-        }
-        lines.push("");
+  async readMarkdownIfExists(relativePath) {
+    if (!await this.store.fileExists(relativePath)) {
+      return "";
+    }
+    try {
+      return await this.store.readText(relativePath);
+    } catch {
+      return "";
+    }
+  }
+  async getIdeaText() {
+    if (!await this.store.fileExists("idea.json")) {
+      return "";
+    }
+    try {
+      const idea = await this.store.readJson("idea.json");
+      const businessIdea = idea.businessIdea?.trim() ?? "";
+      if (businessIdea) {
+        return businessIdea;
       }
+      const ignoredDefaults = /* @__PURE__ */ new Set([
+        "Design Addin Idea",
+        "Business Idea",
+        "Describe the core workflow or pain point this addin should solve.",
+        "Describe the core workflow or pain point this product should solve.",
+        "Describe the expected measurable outcome if this succeeds."
+      ]);
+      const fallbackParts = [idea.title, idea.problem, idea.outcome].map((value) => value?.trim() ?? "").filter((value) => value && !ignoredDefaults.has(value));
+      return fallbackParts.join("\n\n");
+    } catch {
+      return "";
+    }
+  }
+  requireMarkdown(markdown, artifactName) {
+    const content = markdown?.trim() ?? "";
+    if (!content) {
+      throw new Error(`OpenAI returned empty content for ${artifactName}`);
+    }
+    return content;
+  }
+  buildContextSummary(contextBundle) {
+    if (!contextBundle) {
+      return "No workspace context bundle found.";
+    }
+    const lines = [];
+    lines.push(`Workspace root: ${contextBundle.rootFolder}`);
+    lines.push(`Stack hint: ${contextBundle.stackHint}`);
+    lines.push("Top relevant files:");
+    for (const file of contextBundle.topRelevantFiles.slice(0, 25)) {
+      lines.push(`- ${file}`);
+    }
+    lines.push("Candidate build commands:");
+    for (const command of contextBundle.candidateBuildCommands.slice(0, 10)) {
+      lines.push(`- ${command}`);
     }
     return lines.join("\n");
+  }
+  parseBacklogFromMarkdownResponse(markdown) {
+    const payload = this.extractJsonPayload(markdown);
+    let parsed;
+    try {
+      parsed = JSON.parse(payload);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to parse backlog JSON from OpenAI output: ${message}`);
+    }
+    const root = this.asRecord(parsed);
+    if (!root) {
+      throw new Error("Backlog JSON root is not an object.");
+    }
+    const epicsRaw = Array.isArray(root.epics) ? root.epics : [];
+    const epics = epicsRaw.map((epic, index) => this.normalizeEpic(epic, index)).filter((epic) => epic !== void 0);
+    if (epics.length === 0) {
+      throw new Error("Backlog JSON did not contain any valid epics.");
+    }
+    const generatedAt = typeof root.generatedAt === "string" && root.generatedAt.trim().length > 0 ? root.generatedAt : (/* @__PURE__ */ new Date()).toISOString();
+    return {
+      version: 1,
+      generatedAt,
+      epics
+    };
+  }
+  extractJsonPayload(markdown) {
+    const direct = markdown.trim();
+    if (direct.startsWith("{") && direct.endsWith("}")) {
+      return direct;
+    }
+    const fenced = markdown.match(/```json\s*([\s\S]*?)```/i);
+    if (fenced?.[1]) {
+      return fenced[1].trim();
+    }
+    const genericFenced = markdown.match(/```\s*([\s\S]*?)```/i);
+    if (genericFenced?.[1]) {
+      return genericFenced[1].trim();
+    }
+    const firstObjectStart = markdown.indexOf("{");
+    const lastObjectEnd = markdown.lastIndexOf("}");
+    if (firstObjectStart !== -1 && lastObjectEnd > firstObjectStart) {
+      return markdown.slice(firstObjectStart, lastObjectEnd + 1).trim();
+    }
+    throw new Error("No JSON payload found in backlog conversion output.");
+  }
+  normalizeEpic(value, index) {
+    const record = this.asRecord(value);
+    if (!record) {
+      return void 0;
+    }
+    const storiesRaw = Array.isArray(record.stories) ? record.stories : [];
+    const stories = storiesRaw.map((story, storyIndex) => this.normalizeStory(story, index, storyIndex)).filter((story) => story !== void 0);
+    if (stories.length === 0) {
+      return void 0;
+    }
+    return {
+      id: this.asNonEmptyString(record.id) ?? `EPIC-${index + 1}`,
+      title: this.asNonEmptyString(record.title) ?? `Epic ${index + 1}`,
+      stories
+    };
+  }
+  normalizeStory(value, epicIndex, storyIndex) {
+    const record = this.asRecord(value);
+    if (!record) {
+      return void 0;
+    }
+    const tasksRaw = Array.isArray(record.tasks) ? record.tasks : [];
+    const tasks = tasksRaw.map((task, taskIndex) => this.normalizeTask(task, epicIndex, storyIndex, taskIndex)).filter((task) => task !== void 0);
+    if (tasks.length === 0) {
+      return void 0;
+    }
+    const acceptanceCriteria = Array.isArray(record.acceptanceCriteria) ? record.acceptanceCriteria.filter((criterion) => typeof criterion === "string").map((criterion) => criterion.trim()).filter((criterion) => criterion.length > 0) : [];
+    return {
+      id: this.asNonEmptyString(record.id) ?? `STORY-${epicIndex + 1}-${storyIndex + 1}`,
+      title: this.asNonEmptyString(record.title) ?? `Story ${epicIndex + 1}.${storyIndex + 1}`,
+      acceptanceCriteria,
+      tasks
+    };
+  }
+  normalizeTask(value, epicIndex, storyIndex, taskIndex) {
+    const record = this.asRecord(value);
+    if (!record) {
+      return void 0;
+    }
+    const tags = Array.isArray(record.tags) ? record.tags.filter((tag) => typeof tag === "string").map((tag) => tag.trim()).filter(Boolean) : [];
+    const statusRaw = this.asNonEmptyString(record.status);
+    const status = statusRaw === "done" || statusRaw === "in_progress" ? statusRaw : "todo";
+    return {
+      id: this.asNonEmptyString(record.id) ?? `TASK-${epicIndex + 1}-${storyIndex + 1}-${taskIndex + 1}`,
+      title: this.asNonEmptyString(record.title) ?? `Task ${epicIndex + 1}.${storyIndex + 1}.${taskIndex + 1}`,
+      tags,
+      status,
+      promptPath: null
+    };
+  }
+  asRecord(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return void 0;
+    }
+    return value;
+  }
+  asNonEmptyString(value) {
+    if (typeof value !== "string") {
+      return void 0;
+    }
+    const trimmed = value.trim();
+    return trimmed.length > 0 ? trimmed : void 0;
+  }
+  logStage(stage, message) {
+    this.outputChannel?.appendLine(`[${stage}] ${(/* @__PURE__ */ new Date()).toISOString()} ${message}`);
   }
 };
 
@@ -637,26 +763,141 @@ var CodexRunner = class _CodexRunner {
 };
 
 // src/ui/DesignStudioPanel.ts
+var vscode5 = __toESM(require("vscode"));
+
+// src/llm/OpenAiMarkdownGenerator.ts
 var vscode4 = __toESM(require("vscode"));
+var OpenAiMarkdownGenerator = class {
+  async generateMarkdown(stage, inputs) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      await vscode4.window.showErrorMessage(
+        `OpenAI API key is missing.
+
+Windows (PowerShell):
+
+setx OPENAI_API_KEY "your_key_here"
+# then restart VS Code
+
+macOS/Linux (zsh/bash):
+
+export OPENAI_API_KEY="your_key_here"
+# launch code from same terminal OR add to ~/.zshrc ~/.bashrc
+
+VS Code must be restarted after setting env vars in most cases.`,
+        { modal: true }
+      );
+      throw new Error("OPENAI_API_KEY is not set");
+    }
+    const model = vscode4.workspace.getConfiguration("designAddin.llm").get("model", "gpt-4.1-mini");
+    const temperature = vscode4.workspace.getConfiguration("designAddin.llm").get("temperature", 0.2);
+    const maxTokens = vscode4.workspace.getConfiguration("designAddin.llm").get("maxTokens", 3e3);
+    const messages = this.buildMessages(stage, inputs);
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature,
+        max_tokens: maxTokens
+      })
+    });
+    if (!response.ok) {
+      const responseText = await response.text();
+      throw new Error(`OpenAI request failed (${response.status}): ${responseText}`);
+    }
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content?.trim();
+    if (!content) {
+      throw new Error("OpenAI response did not contain markdown content");
+    }
+    return content;
+  }
+  buildMessages(stage, inputs) {
+    if (inputs.prompt) {
+      return [
+        {
+          role: "system",
+          content: "You are a senior product and engineering assistant. Follow the user instructions exactly and return markdown only."
+        },
+        { role: "user", content: inputs.prompt }
+      ];
+    }
+    const systemByStage = {
+      brief: "You are an expert product manager and technical writer. Produce clear, structured output and avoid fluff. Infer the product domain from the user idea and do not assume VS Code extension specifics unless explicitly requested.",
+      architecture: "You are a senior software architect. You design pragmatic architectures with clear module boundaries, data contracts, and implementation details. Infer platform and stack from the provided context and do not assume VS Code extension specifics unless explicitly requested.",
+      backlog: "You are a technical product owner. You create backlogs with epics, user stories, acceptance criteria, and implementation notes aligned to the product domain described in context.",
+      prompts: "You are a senior engineer who writes precise implementation prompts for coding agents. Your prompts must be actionable and reference exact file paths, functions, and test steps. Infer stack and runtime from the provided artifacts."
+    };
+    const userByStage = {
+      brief: inputs.idea ?? "",
+      architecture: `IDEA:
+${inputs.idea ?? ""}
+
+BRIEF:
+${inputs.brief ?? ""}`,
+      backlog: `IDEA:
+${inputs.idea ?? ""}
+
+BRIEF:
+${inputs.brief ?? ""}
+
+ARCHITECTURE:
+${inputs.architecture ?? ""}`,
+      prompts: `ARCHITECTURE:
+${inputs.architecture ?? ""}
+
+BACKLOG:
+${inputs.backlog ?? ""}`
+    };
+    return [
+      { role: "system", content: systemByStage[stage] },
+      { role: "user", content: userByStage[stage] }
+    ];
+  }
+};
+
+// src/llm/OpenAiLlmProvider.ts
+var OpenAiLlmProvider = class {
+  generator = new OpenAiMarkdownGenerator();
+  async generateJson(schemaName, prompt) {
+    const stage = this.mapSchemaToStage(schemaName);
+    const inputs = { prompt };
+    const markdown = await this.generator.generateMarkdown(stage, inputs);
+    return { markdown };
+  }
+  mapSchemaToStage(schemaName) {
+    const normalized = schemaName.toLowerCase();
+    if (normalized.includes("brief")) {
+      return "brief";
+    }
+    if (normalized.includes("architecture")) {
+      return "architecture";
+    }
+    if (normalized.includes("backlog")) {
+      return "backlog";
+    }
+    return "prompts";
+  }
+};
 
 // src/llm/LlmProviderFactory.ts
-function createLlmProvider(enabled, providerName) {
-  switch (providerName) {
-    case "openai":
-      return new StubLlmProvider(enabled);
-    case "stub":
-    default:
-      return new StubLlmProvider(enabled);
-  }
+function createLlmProvider() {
+  return new OpenAiLlmProvider();
 }
 
 // src/ui/DesignStudioPanel.ts
 var DEFAULT_WORKSPACE_PATH = "C:\\Users\\Johan\\source\\repos\\TextAdven";
 var DesignStudioPanel = class _DesignStudioPanel {
-  constructor(panel, context, extensionUri) {
+  constructor(panel, context, extensionUri, outputChannel) {
     this.panel = panel;
     this.context = context;
     this.extensionUri = extensionUri;
+    this.outputChannel = outputChannel;
     this.panel.onDidDispose(() => this.dispose(), null, this.context.subscriptions);
     this.panel.webview.onDidReceiveMessage(
       (message) => {
@@ -668,18 +909,19 @@ var DesignStudioPanel = class _DesignStudioPanel {
   }
   static viewType = "designAddin.studio";
   static currentPanel;
-  static async createOrShow(context, extensionUri) {
-    const column = vscode4.window.activeTextEditor?.viewColumn ?? vscode4.ViewColumn.One;
+  outputChannel;
+  static async createOrShow(context, extensionUri, outputChannel) {
+    const column = vscode5.window.activeTextEditor?.viewColumn ?? vscode5.ViewColumn.One;
     if (_DesignStudioPanel.currentPanel) {
       _DesignStudioPanel.currentPanel.panel.reveal(column);
       await _DesignStudioPanel.currentPanel.refreshAll();
       return;
     }
-    const panel = vscode4.window.createWebviewPanel(_DesignStudioPanel.viewType, "Design Studio", column, {
+    const panel = vscode5.window.createWebviewPanel(_DesignStudioPanel.viewType, "Design Studio", column, {
       enableScripts: true,
       retainContextWhenHidden: true
     });
-    _DesignStudioPanel.currentPanel = new _DesignStudioPanel(panel, context, extensionUri);
+    _DesignStudioPanel.currentPanel = new _DesignStudioPanel(panel, context, extensionUri, outputChannel);
     await _DesignStudioPanel.currentPanel.initialize();
   }
   async initialize() {
@@ -856,8 +1098,8 @@ var DesignStudioPanel = class _DesignStudioPanel {
     const merged = {
       version: existingIdea.version ?? 1,
       createdAt: existingIdea.createdAt ?? (/* @__PURE__ */ new Date()).toISOString(),
-      title: existingIdea.title ?? "Design Addin Idea",
-      problem: existingIdea.problem ?? "Describe the core workflow or pain point this addin should solve.",
+      title: existingIdea.title ?? "Business Idea",
+      problem: existingIdea.problem ?? "Describe the core workflow or pain point this product should solve.",
       outcome: existingIdea.outcome ?? "Describe the expected measurable outcome if this succeeds.",
       businessIdea
     };
@@ -882,9 +1124,9 @@ var DesignStudioPanel = class _DesignStudioPanel {
     const promptsRoot = store.resolveDesignPath("prompts");
     const items = [];
     try {
-      const entries = await vscode4.workspace.fs.readDirectory(promptsRoot);
+      const entries = await vscode5.workspace.fs.readDirectory(promptsRoot);
       for (const [name, fileType] of entries) {
-        if (fileType !== vscode4.FileType.File || !name.endsWith(".prompt.md")) {
+        if (fileType !== vscode5.FileType.File || !name.endsWith(".prompt.md")) {
           continue;
         }
         const taskId = name.replace(".prompt.md", "");
@@ -931,7 +1173,7 @@ var DesignStudioPanel = class _DesignStudioPanel {
       this.postToast("error", `Prompt file for ${taskId} does not exist.`);
       return;
     }
-    await vscode4.commands.executeCommand("vscode.open", uri);
+    await vscode5.commands.executeCommand("vscode.open", uri);
   }
   async openLastRunLog(store) {
     if (!await store.fileExists("runs/last.json")) {
@@ -939,7 +1181,7 @@ var DesignStudioPanel = class _DesignStudioPanel {
       return;
     }
     const uri = store.resolveDesignPath("runs/last.json");
-    await vscode4.commands.executeCommand("vscode.open", uri);
+    await vscode5.commands.executeCommand("vscode.open", uri);
   }
   postToast(level, message) {
     this.panel.webview.postMessage({
@@ -969,18 +1211,17 @@ var DesignStudioPanel = class _DesignStudioPanel {
     return void 0;
   }
   async getServices() {
-    const workspaceRoot = vscode4.workspace.workspaceFolders?.[0]?.uri;
+    const workspaceRoot = vscode5.workspace.workspaceFolders?.[0]?.uri;
     if (!workspaceRoot) {
-      const defaultWorkspaceUri = vscode4.Uri.file(DEFAULT_WORKSPACE_PATH);
-      await vscode4.commands.executeCommand("vscode.openFolder", defaultWorkspaceUri, false);
+      const defaultWorkspaceUri = vscode5.Uri.file(DEFAULT_WORKSPACE_PATH);
+      await vscode5.commands.executeCommand("vscode.openFolder", defaultWorkspaceUri, false);
       return null;
     }
     const store = new ArtifactStore(workspaceRoot);
     const scanner = new WorkspaceScanner(workspaceRoot, store);
-    const llmEnabled = vscode4.workspace.getConfiguration("designAddin.llm").get("enabled", false);
-    const llmProviderName = vscode4.workspace.getConfiguration("designAddin.llm").get("provider", "stub");
-    const llmProvider = createLlmProvider(llmEnabled, llmProviderName);
-    const pipeline = new Pipeline(store, { llmEnabled, llmProvider });
+    this.outputChannel.appendLine(`[config] workspace=${workspaceRoot.fsPath} llm.provider=openai`);
+    const llmProvider = createLlmProvider();
+    const pipeline = new Pipeline(store, { llmProvider, outputChannel: this.outputChannel });
     return { workspaceRoot, store, scanner, pipeline };
   }
   getHtml(webview, extensionUri) {
@@ -1096,12 +1337,16 @@ var DesignStudioPanel = class _DesignStudioPanel {
 			border: 1px solid var(--line);
 			border-radius: 6px;
 			padding: 10px;
-			background: #0b1221;
+			background: #000;
+			color: #fff;
 			line-height: 1.45;
+		}
+		.markdown-output * {
+			color: #fff;
 		}
 		.markdown-output h1, .markdown-output h2, .markdown-output h3 {
 			margin: 0 0 8px;
-			color: #f8fafc;
+			color: #fff;
 		}
 		.markdown-output p {
 			margin: 0 0 8px;
@@ -1111,17 +1356,23 @@ var DesignStudioPanel = class _DesignStudioPanel {
 			padding: 0;
 		}
 		.markdown-output pre {
-			background: #020617;
+			background: #000;
 			border: 1px solid var(--line);
 			border-radius: 6px;
 			padding: 8px;
 			overflow: auto;
 			white-space: pre-wrap;
+			color: #fff;
 		}
 		.markdown-output code {
-			background: #1e293b;
+			background: #000;
+			color: #fff;
 			border-radius: 4px;
 			padding: 1px 4px;
+		}
+		.markdown-output ::selection {
+			background: #1f2937;
+			color: #fff;
 		}
 		.idea-input {
 			width: 100%;
@@ -1781,73 +2032,667 @@ function getNonce() {
   return nonce;
 }
 
+// src/webview/panel.ts
+var vscode7 = __toESM(require("vscode"));
+
+// src/storage.ts
+var vscode6 = __toESM(require("vscode"));
+function artifactFileName(name) {
+  return `${name}.md`;
+}
+function artifactRelativePath(name) {
+  return `.design-addin/${artifactFileName(name)}`;
+}
+var DesignAddinStorage = class {
+  constructor(workspaceRoot) {
+    this.workspaceRoot = workspaceRoot;
+    this.rootUri = vscode6.Uri.joinPath(workspaceRoot, ".design-addin");
+  }
+  rootUri;
+  async ensureRoot() {
+    await vscode6.workspace.fs.createDirectory(this.rootUri);
+  }
+  getArtifactUri(name) {
+    return vscode6.Uri.joinPath(this.rootUri, artifactFileName(name));
+  }
+  async writeArtifact(name, content) {
+    await this.ensureRoot();
+    const uri = this.getArtifactUri(name);
+    await vscode6.workspace.fs.writeFile(uri, Buffer.from(content, "utf8"));
+    return uri;
+  }
+  async readArtifact(name) {
+    const uri = this.getArtifactUri(name);
+    const bytes = await vscode6.workspace.fs.readFile(uri);
+    return Buffer.from(bytes).toString("utf8");
+  }
+  async exists(name) {
+    try {
+      await vscode6.workspace.fs.stat(this.getArtifactUri(name));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+};
+
+// src/webview/panel.ts
+var ArtifactPanel = class _ArtifactPanel {
+  constructor(panel, context, onMessage) {
+    this.panel = panel;
+    this.context = context;
+    this.onMessage = onMessage;
+    this.panel.webview.html = this.getHtml();
+    this.panel.onDidDispose(() => {
+      _ArtifactPanel.current = void 0;
+    });
+    this.panel.webview.onDidReceiveMessage((message) => {
+      void this.onMessage(message);
+    });
+  }
+  static current;
+  artifacts = {
+    idea: "",
+    brief: "",
+    architecture: "",
+    backlog: "",
+    prompts: ""
+  };
+  static createOrShow(context, onMessage) {
+    const column = vscode7.window.activeTextEditor?.viewColumn ?? vscode7.ViewColumn.One;
+    if (_ArtifactPanel.current) {
+      _ArtifactPanel.current.panel.reveal(column);
+      return _ArtifactPanel.current;
+    }
+    const panel = vscode7.window.createWebviewPanel("designAddin.artifacts", "Design Add-in Artifacts", column, {
+      enableScripts: true,
+      retainContextWhenHidden: true
+    });
+    _ArtifactPanel.current = new _ArtifactPanel(panel, context, onMessage);
+    return _ArtifactPanel.current;
+  }
+  updateArtifact(name, content) {
+    this.artifacts[name] = content;
+    void this.panel.webview.postMessage({ type: "artifact", name, content });
+  }
+  setStatus(message, isError = false) {
+    void this.panel.webview.postMessage({ type: "status", message, isError });
+  }
+  getIdea() {
+    return this.artifacts.idea;
+  }
+  getHtml() {
+    const nonce = Math.random().toString(36).slice(2);
+    return `<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8" />
+	<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<style>
+		body{font-family:Segoe UI, sans-serif;background:#0d1526;color:#d9e2f1;margin:0}
+		.top{padding:10px;border-bottom:1px solid #2e3b55}
+		.tabs{display:flex;gap:8px;padding:8px 10px}
+		.tab-btn{background:transparent;border:1px solid #2e3b55;color:#d9e2f1;padding:6px 10px;border-radius:6px;cursor:pointer}
+		.tab-btn.active{border-color:#31c48d}
+		.panel{display:none;padding:10px}
+		.panel.active{display:block}
+		textarea{width:100%;min-height:360px;background:#0b1220;color:#d9e2f1;border:1px solid #2e3b55;border-radius:6px;padding:8px;font-family:Consolas,monospace}
+		.row{display:flex;gap:8px;align-items:center;margin:8px 0}
+		button{background:transparent;border:1px solid #2e3b55;color:#d9e2f1;padding:6px 10px;border-radius:6px;cursor:pointer}
+		button:hover{border-color:#31c48d}
+		.status{font-size:12px;color:#99a8be}
+		.status.error{color:#ff8a8a}
+	</style>
+</head>
+<body>
+	<div class="top">
+		<div id="status" class="status">Ready</div>
+		<div class="status">Stored under ${artifactRelativePath("idea").replace("/idea.md", "/")}</div>
+	</div>
+	<div class="tabs">
+		<button class="tab-btn active" data-tab="idea">Idea</button>
+		<button class="tab-btn" data-tab="brief">Brief</button>
+		<button class="tab-btn" data-tab="architecture">Architecture</button>
+		<button class="tab-btn" data-tab="backlog">Backlog</button>
+		<button class="tab-btn" data-tab="prompts">Prompts</button>
+	</div>
+	${this.tabHtml("idea", true)}
+	${this.tabHtml("brief")}
+	${this.tabHtml("architecture")}
+	${this.tabHtml("backlog")}
+	${this.tabHtml("prompts")}
+	<script nonce="${nonce}">
+		const vscode = acquireVsCodeApi();
+		const names = ['idea','brief','architecture','backlog','prompts'];
+		let current = 'idea';
+
+		function show(name){
+			current = name;
+			document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+			document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
+			document.getElementById('panel-'+name).classList.add('active');
+			document.querySelector('.tab-btn[data-tab="'+name+'"]').classList.add('active');
+		}
+		function copyCurrent(name){
+			const value = document.getElementById(name + '-text').value || '';
+			navigator.clipboard.writeText(value);
+		}
+		function regenerate(name){
+			const includeDownstream = document.getElementById(name + '-down').checked;
+			vscode.postMessage({ type:'regenerate', artifact:name, includeDownstream });
+		}
+
+		document.querySelectorAll('.tab-btn').forEach(btn=>{
+			btn.addEventListener('click',()=>show(btn.dataset.tab));
+		});
+		names.forEach(name=>{
+			const copy = document.getElementById(name+'-copy');
+			if(copy){ copy.addEventListener('click',()=>copyCurrent(name)); }
+			const regen = document.getElementById(name+'-regen');
+			if(regen){ regen.addEventListener('click',()=>regenerate(name)); }
+			if(name==='idea'){
+				document.getElementById('idea-text').addEventListener('input',(e)=>{
+					vscode.postMessage({ type:'saveIdea', content:e.target.value });
+				});
+			}
+		});
+
+		window.addEventListener('message', event=>{
+			const msg = event.data;
+			if(msg.type==='artifact'){
+				const el = document.getElementById(msg.name + '-text');
+				if(el && el !== document.activeElement){ el.value = msg.content || ''; }
+			}
+			if(msg.type==='status'){
+				const status = document.getElementById('status');
+				status.textContent = msg.message || '';
+				status.className = msg.isError ? 'status error' : 'status';
+			}
+		});
+	</script>
+</body>
+</html>`;
+  }
+  tabHtml(name, isIdea = false) {
+    return `<section class="panel${isIdea ? " active" : ""}" id="panel-${name}">
+	<div class="row">
+		<button id="${name}-copy">Copy to clipboard</button>
+		${isIdea ? "" : `<button id="${name}-regen">Regenerate</button><label><input id="${name}-down" type="checkbox" checked/> include downstream</label>`}
+	</div>
+	<textarea id="${name}-text" ${isIdea ? "" : "readonly"}></textarea>
+</section>`;
+  }
+};
+
+// src/promptTemplates.ts
+function briefPromptFromIdea(idea) {
+  return `SYSTEM:
+You are an expert product manager and technical writer. Produce clear, structured output and avoid fluff.
+Infer the product domain from the idea and keep all recommendations aligned to that domain.
+Do not assume this is a VS Code extension unless the idea explicitly says so.
+
+USER:
+Create a product brief for the product described in this idea.
+
+IDEA:
+<<<
+${idea}
+>>>
+
+Return Markdown with exactly these sections:
+
+# One-liner
+# Problem
+# Target users & primary persona
+# Top use cases (5)
+# Functional requirements
+# Non-goals
+# Quality attributes (NFRs)
+# Constraints & assumptions
+# Success metrics
+# Risks & mitigations
+# Open questions`;
+}
+function architecturePromptFromIdeaAndBrief(idea, brief) {
+  return `SYSTEM:
+You are a senior software architect. You design pragmatic architectures with clear module boundaries, data contracts, and implementation details.
+Infer the target platform and stack from IDEA and BRIEF.
+Do not assume this is a VS Code extension unless the idea explicitly says so.
+
+USER:
+Design the technical architecture for the product described in IDEA and BRIEF.
+
+IDEA:
+<<<
+${idea}
+>>>
+
+BRIEF:
+<<<
+${brief}
+>>>
+
+Return Markdown with exactly these sections:
+
+# Architecture overview
+# Key decisions
+# Components (diagram in text + responsibilities)
+# Data model & storage (include persistence choice and schemas)
+# Interface design (APIs, commands, events, UI interactions, and integrations as appropriate)
+# Security & privacy
+# Error handling & observability
+# Performance considerations
+# Testing strategy
+# Incremental delivery plan (phases)`;
+}
+function backlogPromptFromInputs(idea, brief, architecture) {
+  return `SYSTEM:
+You are a technical product owner. You create backlogs with epics, user stories, acceptance criteria, and implementation notes.
+Infer the product domain and implementation stack from IDEA, BRIEF, and ARCHITECTURE.
+Do not assume VS Code extension details unless explicitly stated.
+
+USER:
+Create an implementation backlog for the product described below.
+
+IDEA:
+<<<
+${idea}
+>>>
+
+BRIEF:
+<<<
+${brief}
+>>>
+
+ARCHITECTURE:
+<<<
+${architecture}
+>>>
+
+Return Markdown with exactly these sections:
+
+# Epics
+(List 4-8 epics with goal statements)
+
+# User stories
+For each epic, list 4-10 stories. Each story MUST include:
+- Story ID (e.g. ST-101)
+- Title
+- User story sentence
+- Acceptance criteria (3-7 bullet points)
+- Notes (important edge cases / constraints)
+- Test notes (how to verify)
+
+# Milestones
+(2-6 milestones mapping story IDs to releases)`;
+}
+function promptSetFromBacklogAndArchitecture(backlog, architecture) {
+  return `SYSTEM:
+You are a senior engineer who writes precise implementation prompts for coding agents.
+Your prompts must be actionable and reference exact file paths, functions, and test steps.
+Infer the stack, runtime, and architecture style from the provided artifacts.
+Do not assume VS Code extension conventions unless explicitly stated.
+
+USER:
+Generate coding-agent prompts to implement the backlog for the described product.
+
+ARCHITECTURE:
+<<<
+${architecture}
+>>>
+
+BACKLOG:
+<<<
+${backlog}
+>>>
+
+Output Markdown with exactly these sections:
+
+# Prompt set
+Create 1 prompt per story (ST-### or the story IDs present in BACKLOG). Each prompt MUST include:
+- Goal
+- Files to touch (explicit paths)
+- Step-by-step changes
+- New types/interfaces/events to add
+- Interfaces/endpoints/commands/events to add (as appropriate for the target domain)
+- Logging/error handling requirements
+- Tests to add (unit/integration/manual)
+- Verification steps
+
+# Integration order
+List the recommended order to run the prompts and why.`;
+}
+
+// src/artifactPipeline.ts
+var ArtifactPipeline = class {
+  constructor(storage, client, output) {
+    this.storage = storage;
+    this.client = client;
+    this.output = output;
+  }
+  async generateAll(idea, onUpdate, progress) {
+    const artifacts = {
+      idea: idea.trim(),
+      brief: "",
+      architecture: "",
+      backlog: "",
+      prompts: ""
+    };
+    await this.storage.writeArtifact("idea", artifacts.idea);
+    onUpdate("idea", artifacts.idea);
+    const steps = [
+      {
+        key: "brief",
+        label: "Generating brief",
+        run: () => this.runStep("brief", briefPromptFromIdea(artifacts.idea))
+      },
+      {
+        key: "architecture",
+        label: "Generating architecture",
+        run: () => this.runStep("architecture", architecturePromptFromIdeaAndBrief(artifacts.idea, artifacts.brief))
+      },
+      {
+        key: "backlog",
+        label: "Generating backlog",
+        run: () => this.runStep("backlog", backlogPromptFromInputs(artifacts.idea, artifacts.brief, artifacts.architecture))
+      },
+      {
+        key: "prompts",
+        label: "Generating prompt set",
+        run: () => this.runStep("prompts", promptSetFromBacklogAndArchitecture(artifacts.backlog, artifacts.architecture))
+      }
+    ];
+    for (const step of steps) {
+      progress?.report({ message: step.label, increment: 25 });
+      const result = await step.run();
+      artifacts[step.key] = result.content;
+      onUpdate(step.key, result.content);
+    }
+    return artifacts;
+  }
+  async regenerateFrom(start, onUpdate, includeDownstream) {
+    const idea = await this.safeRead("idea");
+    const brief = await this.safeRead("brief");
+    const architecture = await this.safeRead("architecture");
+    const backlog = await this.safeRead("backlog");
+    const order = ["brief", "architecture", "backlog", "prompts"];
+    const startIndex = order.indexOf(start);
+    const selected = includeDownstream ? order.slice(startIndex) : [start];
+    let currentBrief = brief;
+    let currentArchitecture = architecture;
+    let currentBacklog = backlog;
+    for (const item of selected) {
+      if (item === "brief") {
+        const result2 = await this.runStep("brief", briefPromptFromIdea(idea));
+        currentBrief = result2.content;
+        onUpdate("brief", result2.content);
+        continue;
+      }
+      if (item === "architecture") {
+        const result2 = await this.runStep("architecture", architecturePromptFromIdeaAndBrief(idea, currentBrief));
+        currentArchitecture = result2.content;
+        onUpdate("architecture", result2.content);
+        continue;
+      }
+      if (item === "backlog") {
+        const result2 = await this.runStep("backlog", backlogPromptFromInputs(idea, currentBrief, currentArchitecture));
+        currentBacklog = result2.content;
+        onUpdate("backlog", result2.content);
+        continue;
+      }
+      const result = await this.runStep("prompts", promptSetFromBacklogAndArchitecture(currentBacklog, currentArchitecture));
+      onUpdate("prompts", result.content);
+    }
+  }
+  async runStep(name, prompt) {
+    this.output.appendLine(`[pipeline] ${name} started`);
+    const started = Date.now();
+    const result = await this.client.generateMarkdown(prompt);
+    await this.storage.writeArtifact(name, result.content);
+    const elapsedMs = Date.now() - started;
+    const usageText = result.usage?.totalTokens ? `tokens total=${result.usage.totalTokens}` : "tokens unavailable";
+    this.output.appendLine(`[pipeline] ${name} finished in ${elapsedMs}ms (${usageText})`);
+    return {
+      name,
+      content: result.content,
+      usageText,
+      elapsedMs
+    };
+  }
+  async safeRead(name) {
+    if (!await this.storage.exists(name)) {
+      return "";
+    }
+    return this.storage.readArtifact(name);
+  }
+};
+
+// src/openaiClient.ts
+function buildChatCompletionsRequest(options, prompt) {
+  return {
+    model: options.model,
+    temperature: options.temperature,
+    max_tokens: options.maxOutputTokens,
+    messages: [{ role: "user", content: prompt }]
+  };
+}
+var OpenAiClient = class {
+  constructor(apiKey, options, output) {
+    this.apiKey = apiKey;
+    this.options = options;
+    this.output = output;
+  }
+  async generateMarkdown(prompt) {
+    const requestBody = buildChatCompletionsRequest(this.options, prompt);
+    const endpoint = `${this.options.baseUrl ?? "https://api.openai.com"}/v1/chat/completions`;
+    const start = Date.now();
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(requestBody)
+    });
+    const elapsed = Date.now() - start;
+    if (!response.ok) {
+      const errorText = await response.text();
+      this.output.appendLine(`[openai] failed ${response.status} in ${elapsed}ms`);
+      throw new Error(`OpenAI error ${response.status}: ${errorText}`);
+    }
+    const json = await response.json();
+    const content = json.choices?.[0]?.message?.content?.trim();
+    if (!content) {
+      throw new Error("OpenAI returned an empty completion.");
+    }
+    this.output.appendLine(`[openai] success in ${elapsed}ms`);
+    return {
+      content,
+      usage: {
+        promptTokens: json.usage?.prompt_tokens,
+        completionTokens: json.usage?.completion_tokens,
+        totalTokens: json.usage?.total_tokens
+      }
+    };
+  }
+};
+
 // src/extension.ts
 var DEFAULT_WORKSPACE_PATH2 = "C:\\Users\\Johan\\source\\repos\\TextAdven";
 function activate(context) {
+  const output = vscode8.window.createOutputChannel("Design Add-in");
+  context.subscriptions.push(output);
+  output.appendLine(`[activate] ${(/* @__PURE__ */ new Date()).toISOString()} extension activated`);
+  let artifactsPanel;
   const register = (commandId, action) => {
-    const disposable = vscode5.commands.registerCommand(commandId, async () => {
+    const disposable = vscode8.commands.registerCommand(commandId, async () => {
       try {
+        output.appendLine(`[command] ${(/* @__PURE__ */ new Date()).toISOString()} ${commandId}`);
+        if (commandId === "designAddin.generateBrief" || commandId === "designAddin.generateArchitecture" || commandId === "designAddin.generateBacklog" || commandId === "designAddin.generatePromptForTask") {
+          output.show(true);
+        }
         await action();
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        vscode5.window.showErrorMessage(`${commandId} failed: ${message}`);
+        output.appendLine(`[command] ${commandId} failed: ${message}`);
+        vscode8.window.showErrorMessage(`${commandId} failed: ${message}`);
       }
     });
     context.subscriptions.push(disposable);
   };
   register("designAddin.openStudio", async () => {
-    await DesignStudioPanel.createOrShow(context, context.extensionUri);
+    await DesignStudioPanel.createOrShow(context, context.extensionUri, output);
+  });
+  register("designAddin.generateArtifacts", async () => {
+    const workspaceRoot = await ensureWorkspaceRoot();
+    if (!workspaceRoot) {
+      return;
+    }
+    const idea = await vscode8.window.showInputBox({
+      title: "Design Add-in: Enter Idea",
+      prompt: "Describe the software/business idea to generate artifacts from.",
+      placeHolder: "Example: AI-assisted sprint planning extension for small teams",
+      ignoreFocusOut: true
+    });
+    if (!idea?.trim()) {
+      vscode8.window.showWarningMessage("Idea is required to generate artifacts.");
+      return;
+    }
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      await vscode8.window.showErrorMessage(
+        "OPENAI_API_KEY is not set.",
+        {
+          modal: true,
+          detail: "Set OPENAI_API_KEY in your terminal/session environment and restart VS Code. If using Extension Development Host, set it in the launch/task environment as well."
+        }
+      );
+      return;
+    }
+    const storage = new DesignAddinStorage(workspaceRoot);
+    const model = vscode8.workspace.getConfiguration("designAddin").get("openaiModel", "gpt-4.1-mini");
+    const maxOutputTokens = vscode8.workspace.getConfiguration("designAddin").get("maxOutputTokens", 3e3);
+    const client = new OpenAiClient(
+      apiKey,
+      {
+        model,
+        temperature: 0.2,
+        maxOutputTokens
+      },
+      output
+    );
+    const pipeline = new ArtifactPipeline(storage, client, output);
+    const getPanel = () => {
+      if (artifactsPanel) {
+        return artifactsPanel;
+      }
+      artifactsPanel = ArtifactPanel.createOrShow(context, async (message) => {
+        const root = await ensureWorkspaceRoot();
+        if (!root) {
+          return;
+        }
+        const panelStorage = new DesignAddinStorage(root);
+        const panelClient = new OpenAiClient(
+          apiKey,
+          { model, temperature: 0.2, maxOutputTokens },
+          output
+        );
+        const panelPipeline = new ArtifactPipeline(panelStorage, panelClient, output);
+        if (message.type === "saveIdea") {
+          await panelStorage.writeArtifact("idea", message.content);
+          return;
+        }
+        await vscode8.window.withProgress(
+          { location: vscode8.ProgressLocation.Notification, title: `Regenerating ${message.artifact}` },
+          async () => {
+            await panelPipeline.regenerateFrom(
+              message.artifact,
+              (name, content) => {
+                getPanel().updateArtifact(name, content);
+              },
+              message.includeDownstream
+            );
+          }
+        );
+      });
+      return artifactsPanel;
+    };
+    const panel = getPanel();
+    panel.setStatus("Generating artifacts...");
+    panel.updateArtifact("idea", idea);
+    try {
+      await vscode8.window.withProgress(
+        { location: vscode8.ProgressLocation.Notification, title: "Design Add-in: Generate Artifacts" },
+        async (progress) => {
+          await pipeline.generateAll(
+            idea,
+            (name, content) => {
+              panel.updateArtifact(name, content);
+            },
+            progress
+          );
+        }
+      );
+      panel.setStatus("Artifacts generated successfully.");
+      vscode8.window.showInformationMessage("Generated .design-addin artifacts.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      output.appendLine(`[pipeline] ERROR ${message}`);
+      panel.setStatus(`Error: ${message}`, true);
+      vscode8.window.showErrorMessage(`Artifact generation failed: ${message}`);
+    }
   });
   register("designAddin.newIdea", async () => {
-    const services = await getServices();
+    const services = await getServices(output);
     if (!services) {
       return;
     }
     await services.store.ensureDesignFolder();
     const uri = await services.pipeline.newIdea();
     await openTextDocument(uri);
-    vscode5.window.showInformationMessage("Created .ai-design/idea.json");
+    vscode8.window.showInformationMessage("Created .ai-design/idea.json");
   });
   register("designAddin.generateBrief", async () => {
-    const services = await getServices();
+    const services = await getServices(output);
     if (!services) {
       return;
     }
     await services.store.ensureDesignFolder();
     const uri = await services.pipeline.generateBrief();
     await openTextDocument(uri);
-    vscode5.window.showInformationMessage("Created .ai-design/brief.v1.md");
+    vscode8.window.showInformationMessage("Created .ai-design/brief.v1.md");
   });
   register("designAddin.generateArchitecture", async () => {
-    const services = await getServices();
+    const services = await getServices(output);
     if (!services) {
       return;
     }
     await services.store.ensureDesignFolder();
     const uri = await services.pipeline.generateArchitecture();
     await openTextDocument(uri);
-    vscode5.window.showInformationMessage("Created .ai-design/architecture.v1.md");
+    vscode8.window.showInformationMessage("Created .ai-design/architecture.v1.md");
   });
   register("designAddin.generateBacklog", async () => {
-    const services = await getServices();
+    const services = await getServices(output);
     if (!services) {
       return;
     }
     await services.store.ensureDesignFolder();
     const { jsonUri, markdownUri } = await services.pipeline.generateBacklog();
     await openTextDocument(markdownUri);
-    vscode5.window.showInformationMessage(
-      `Created backlog artifacts: ${vscode5.workspace.asRelativePath(jsonUri)}, ${vscode5.workspace.asRelativePath(markdownUri)}`
+    vscode8.window.showInformationMessage(
+      `Created backlog artifacts: ${vscode8.workspace.asRelativePath(jsonUri)}, ${vscode8.workspace.asRelativePath(markdownUri)}`
     );
   });
   register("designAddin.generatePromptForTask", async () => {
-    const services = await getServices();
+    const services = await getServices(output);
     if (!services) {
       return;
     }
     await services.store.ensureDesignFolder();
     if (!await services.store.fileExists("backlog.v1.json")) {
-      vscode5.window.showWarningMessage('Backlog not found. Run "Generate Backlog" first.');
+      vscode8.window.showWarningMessage('Backlog not found. Run "Generate Backlog" first.');
       return;
     }
     const backlog = await services.store.readJson("backlog.v1.json");
@@ -1858,16 +2703,16 @@ function activate(context) {
     await services.scanner.scanAndStoreContextBundle();
     const uri = await services.pipeline.generatePromptForTask(selectedTask.task.id, backlog);
     await openTextDocument(uri);
-    vscode5.window.showInformationMessage(`Created prompt for ${selectedTask.task.id}`);
+    vscode8.window.showInformationMessage(`Created prompt for ${selectedTask.task.id}`);
   });
   register("designAddin.runTaskWithCodex", async () => {
-    const services = await getServices();
+    const services = await getServices(output);
     if (!services) {
       return;
     }
     await services.store.ensureDesignFolder();
     if (!await services.store.fileExists("backlog.v1.json")) {
-      vscode5.window.showWarningMessage('Backlog not found. Run "Generate Backlog" first.');
+      vscode8.window.showWarningMessage('Backlog not found. Run "Generate Backlog" first.');
       return;
     }
     const backlog = await services.store.readJson("backlog.v1.json");
@@ -1883,39 +2728,45 @@ function activate(context) {
     const promptUri = services.store.resolveDesignPath(promptRelativePath);
     const runner = new CodexRunner(services.store);
     const runLog = await runner.runPrompt(promptUri, services.workspaceRoot, selectedTask.task.id);
-    vscode5.window.showInformationMessage(
+    vscode8.window.showInformationMessage(
       `Started Codex for ${selectedTask.task.id}. Run log: ${runLog.runLogPath}`
     );
   });
   register("designAddin.rescanWorkspaceContext", async () => {
-    const services = await getServices();
+    const services = await getServices(output);
     if (!services) {
       return;
     }
     await services.store.ensureDesignFolder();
     const uri = await services.scanner.scanAndStoreContextBundle();
     await openTextDocument(uri);
-    vscode5.window.showInformationMessage("Updated .ai-design/contextBundle.json");
+    vscode8.window.showInformationMessage("Updated .ai-design/contextBundle.json");
   });
 }
-async function getServices() {
-  const workspaceRoot = vscode5.workspace.workspaceFolders?.[0]?.uri;
+async function getServices(outputChannel) {
+  const workspaceRoot = await ensureWorkspaceRoot();
   if (!workspaceRoot) {
-    const defaultWorkspaceUri = vscode5.Uri.file(DEFAULT_WORKSPACE_PATH2);
-    await vscode5.commands.executeCommand("vscode.openFolder", defaultWorkspaceUri, false);
     return null;
   }
   const store = new ArtifactStore(workspaceRoot);
   const scanner = new WorkspaceScanner(workspaceRoot, store);
-  const llmEnabled = vscode5.workspace.getConfiguration("designAddin.llm").get("enabled", false);
-  const llmProviderName = vscode5.workspace.getConfiguration("designAddin.llm").get("provider", "stub");
-  const llmProvider = createLlmProvider(llmEnabled, llmProviderName);
-  const pipeline = new Pipeline(store, { llmEnabled, llmProvider });
+  outputChannel?.appendLine(`[config] workspace=${workspaceRoot.fsPath} llm.provider=openai`);
+  const llmProvider = createLlmProvider();
+  const pipeline = new Pipeline(store, { llmProvider, outputChannel });
   return { workspaceRoot, store, scanner, pipeline };
 }
+async function ensureWorkspaceRoot() {
+  const workspaceRoot = vscode8.workspace.workspaceFolders?.[0]?.uri;
+  if (workspaceRoot) {
+    return workspaceRoot;
+  }
+  const defaultWorkspaceUri = vscode8.Uri.file(DEFAULT_WORKSPACE_PATH2);
+  await vscode8.commands.executeCommand("vscode.openFolder", defaultWorkspaceUri, false);
+  return null;
+}
 async function openTextDocument(uri) {
-  const document = await vscode5.workspace.openTextDocument(uri);
-  await vscode5.window.showTextDocument(document, { preview: false });
+  const document = await vscode8.workspace.openTextDocument(uri);
+  await vscode8.window.showTextDocument(document, { preview: false });
 }
 async function pickTask(backlog) {
   const picks = [];
@@ -1934,10 +2785,10 @@ async function pickTask(backlog) {
     }
   }
   if (picks.length === 0) {
-    vscode5.window.showWarningMessage("No tasks found in backlog.v1.json.");
+    vscode8.window.showWarningMessage("No tasks found in backlog.v1.json.");
     return void 0;
   }
-  const selection = await vscode5.window.showQuickPick(picks, {
+  const selection = await vscode8.window.showQuickPick(picks, {
     title: "Select a task to generate prompt",
     placeHolder: "Choose a task ID"
   });

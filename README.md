@@ -12,6 +12,7 @@ MVP VS Code extension scaffold for design-to-execution artifacts stored in `.ai-
 - `Design Addin: Generate Prompt for Task` (`designAddin.generatePromptForTask`)
 - `Design Addin: Run Task with Codex` (`designAddin.runTaskWithCodex`)
 - `Design Addin: Rescan Workspace Context` (`designAddin.rescanWorkspaceContext`)
+- `Design Addin: Generate Artifacts (OpenAI)` (`designAddin.generateArtifacts`)
 
 ## Artifact Storage
 
@@ -28,13 +29,24 @@ Expected artifacts:
 - `.ai-design/runs/<timestamp>_<TASK-ID>.json`
 - `.ai-design/runs/last.json`
 
-## LLM Settings (Stub For Now)
+## LLM Settings
 
-- `designAddin.llm.enabled` (default `false`)
-- `designAddin.llm.provider` (`openai` or `stub`, default `stub`)
+- `designAddin.llm.provider` (`openai`, default `openai`)
 - `designAddin.llm.apiKey` (placeholder for future provider integration)
 
-Note: real provider calls are not implemented yet. For future implementation, store API keys in VS Code Secret Storage instead of plain settings.
+Brief/architecture/backlog/prompts generation uses OpenAI. If `OPENAI_API_KEY` is missing, generation fails with setup guidance:
+
+Windows (PowerShell):
+
+`setx OPENAI_API_KEY "your_key_here"`
+`# then restart VS Code`
+
+macOS/Linux (zsh/bash):
+
+`export OPENAI_API_KEY="your_key_here"`
+`# launch code from same terminal OR add to ~/.zshrc ~/.bashrc`
+
+VS Code must be restarted after setting env vars in most cases.
 
 ## Run And Test In Extension Development Host
 
@@ -53,3 +65,32 @@ Note: real provider calls are not implemented yet. For future implementation, st
 1. Run `Run with Codex` anyway.
 2. Confirm run metadata files are still written under `.ai-design/runs/`.
 3. Check the `Codex` terminal to see the shell error (`codex` command not found), which is expected for this simulation.
+
+## OpenAI Artifact Pipeline
+
+`designAddin.generateArtifacts` creates `.design-addin/` artifacts in this order:
+
+1. `idea.md`
+2. `brief.md`
+3. `architecture.md`
+4. `backlog.md`
+5. `prompts.md`
+
+The command opens a webview with tabs (`Idea`, `Brief`, `Architecture`, `Backlog`, `Prompts`), supports per-tab regenerate, and copy-to-clipboard.
+
+Required environment variable:
+
+`OPENAI_API_KEY`
+
+Settings:
+
+- `designAddin.openaiModel` (default `gpt-4.1-mini`)
+- `designAddin.maxOutputTokens` (default `3000`)
+
+Manual checklist:
+
+1. With `OPENAI_API_KEY` set, run `Design Addin: Generate Artifacts` and verify all `.design-addin/*.md` files exist.
+2. Use regenerate on `Architecture` with downstream enabled and verify `architecture.md`, `backlog.md`, `prompts.md` update.
+3. Use copy button on any tab and verify clipboard content.
+4. Without `OPENAI_API_KEY`, run command and verify modal guidance appears.
+5. With no folder open, run command and verify workspace-open fallback behavior.
